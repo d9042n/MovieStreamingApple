@@ -9,6 +9,8 @@ import SwiftUI
 
 @main
 struct MovieStreamingAppleApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     @State private var themeManager = ThemeManager()
     @State private var appRouter = AppRouter()
     @State private var watchHistoryManager = WatchHistoryManager()

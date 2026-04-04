@@ -65,6 +65,13 @@ final class VideoPlayerViewModel {
 
     // MARK: - Player Source
 
+    /// True when the player was cleaned up but still remembers a valid source URL.
+    /// Used by PlayerPageView.onAppear to detect if the player needs reloading
+    /// after returning from a pushed navigation destination.
+    var needsReload: Bool {
+        player?.currentItem == nil && !currentVideoURL.isEmpty
+    }
+
     private(set) var currentVideoURL: String = ""
     private(set) var currentSubtitles: [SubtitleTrack] = []
     private(set) var posterURL: String = ""

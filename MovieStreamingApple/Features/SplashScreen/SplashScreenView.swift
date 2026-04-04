@@ -58,9 +58,9 @@ struct SplashScreenView: View {
 
     // MARK: - Audio Fade Constants
     /// Duration for volume fade-in at video start (seconds).
-    private let audioFadeInDuration: TimeInterval = 0.5
+    private let audioFadeInDuration: TimeInterval = 1
     /// Duration for volume fade-out — matches the visual crossfade (seconds).
-    private let audioFadeOutDuration: TimeInterval = 0.8
+    private let audioFadeOutDuration: TimeInterval = 1
     /// Timer interval for volume ramping (~60 steps/sec for buttery smooth).
     private let volumeStepInterval: TimeInterval = 1.0 / 60.0
 

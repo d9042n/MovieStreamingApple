@@ -12,6 +12,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct PlayerPageView: View {
     let slug: String
@@ -94,11 +95,30 @@ struct PlayerPageView: View {
         // derived from activeServerIndex, so the onChange above already handles it.
         .onAppear {
             router.isPlayerActive = true
+            // iPhone: allow landscape while player is active
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                AppDelegate.allowLandscapeOnPhone = true
+            }
+            // Restore player source if it was cleaned up during onDisappear
+            // but the viewModel still has valid data (e.g., user navigated
+            // forward to ContentDetail/PersonDetail then popped back).
+            // .task doesn't re-fire and .onChange(of: videoSource) doesn't
+            // trigger because the value hasn't changed — so we must reload here.
+            if !viewModel.isEmbed,
+               playerVM.needsReload,
+               !viewModel.videoSource.isEmpty {
+                loadPlayerSource(url: viewModel.videoSource)
+            }
         }
         .onDisappear {
             router.isPlayerActive = false
             saveToWatchHistory()
             playerVM.cleanup()
+            // iPhone: revoke landscape permission and force back to portrait
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                AppDelegate.allowLandscapeOnPhone = false
+                forcePortraitOnPhone()
+            }
         }
         .sheet(isPresented: $showSettings) {
             PlayerSettingsSheet(
@@ -923,12 +943,24 @@ struct PlayerPageView: View {
             windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
             windowScene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
         } else {
+            // Leaving player entirely — revoke landscape on iPhone
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                AppDelegate.allowLandscapeOnPhone = false
+                forcePortraitOnPhone()
+            }
             dismiss()
         }
     }
 
     /// Lock device orientation to portrait only.
     private func lockPortrait() {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+        windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+        windowScene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+    }
+
+    /// Force iPhone back to portrait and notify the system.
+    private func forcePortraitOnPhone() {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
         windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
         windowScene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
