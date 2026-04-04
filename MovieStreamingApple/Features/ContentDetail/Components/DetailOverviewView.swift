@@ -17,8 +17,8 @@ struct DetailOverviewView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxl) {
             // MARK: - Description
-            if let description = viewModel.content?.description, !description.isEmpty {
-                Text(stripHTML(description))
+            if let description = viewModel.strippedDescription, !description.isEmpty {
+                Text(description)
                     .font(ThemeFont.body(size: 14, weight: .light))
                     .foregroundStyle(ThemeColor.textMuted)
                     .lineSpacing(5)
@@ -207,25 +207,6 @@ struct DetailOverviewView: View {
     }
 
     // MARK: - Helpers
-
-    /// Strip HTML tags from description using NSAttributedString (#49).
-    private func stripHTML(_ html: String) -> String {
-        guard let data = html.data(using: .utf8),
-              let attributed = try? NSAttributedString(
-                  data: data,
-                  options: [
-                      .documentType: NSAttributedString.DocumentType.html,
-                      .characterEncoding: String.Encoding.utf8.rawValue,
-                  ],
-                  documentAttributes: nil
-              ) else {
-            // Fallback: simple regex strip
-            return html
-                .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 
     /// Format ISO date string to Vietnamese locale — uses shared DateFormatting (#35).
     private func formatDate(_ dateString: String) -> String {

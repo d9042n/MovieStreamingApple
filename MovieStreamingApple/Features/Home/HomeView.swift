@@ -45,10 +45,7 @@ struct HomeView: View {
         }
         .navigationDestination(for: Content.self) { content in
             ContentDetailView(
-                slug: {
-                    if let slug = content.slug, !slug.isEmpty { return slug }
-                    return content.id
-                }(),
+                slug: content.effectiveSlug,
                 contentType: content.type ?? .movie
             )
         }

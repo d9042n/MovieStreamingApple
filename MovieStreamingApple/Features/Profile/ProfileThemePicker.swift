@@ -4,6 +4,8 @@
 //
 //  Theme selection UI — lets users choose between 5 premium cinema themes.
 //  Presented as a sheet from Profile or Settings.
+//  Includes live color preview swatch, haptic feedback on selection,
+//  and smooth animated transitions when switching themes.
 //
 
 import SwiftUI
@@ -34,6 +36,7 @@ struct ProfileThemePicker: View {
                 }
                 .padding(.vertical, DesignTokens.Spacing.xl)
             }
+            .scrollIndicators(.hidden)
             .background(themeManager.colors.bgBase.ignoresSafeArea())
             .navigationTitle("Giao diện")
             .navigationBarTitleDisplayMode(.inline)
@@ -62,6 +65,8 @@ struct ProfileThemePicker: View {
                     )
                 )
                 .padding(.bottom, DesignTokens.Spacing.xs)
+                // UX: Subtle pulse to draw attention
+                .symbolEffect(.pulse, options: .repeating.speed(0.3))
 
             Text("Chọn giao diện")
                 .font(ThemeFont.display(size: 22, weight: .bold))
@@ -124,6 +129,7 @@ private struct ThemeOptionCard: View {
                         Circle()
                             .fill(ThemeColors.colors(for: theme).brand)
                             .frame(width: 14, height: 14)
+                            .transition(.scale.combined(with: .opacity))
                     }
                 }
                 .animation(DesignTokens.Animation.quick, value: isSelected)
@@ -142,9 +148,16 @@ private struct ThemeOptionCard: View {
                         lineWidth: isSelected ? 1.5 : 0.5
                     )
             )
+            // UX: Slight scale effect on selected card
+            .scaleEffect(isSelected ? 1.0 : 0.98)
+            .animation(DesignTokens.Animation.quick, value: isSelected)
         }
         .buttonStyle(.plain)
         .sensoryFeedback(.selection, trigger: isSelected)
+        // A11Y: Announce selection state
+        .accessibilityLabel("\(theme.displayName), \(themeDescription)")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint(isSelected ? "Đang chọn" : "Nhấn để chọn giao diện này")
     }
 
     // MARK: - Color Preview Swatch

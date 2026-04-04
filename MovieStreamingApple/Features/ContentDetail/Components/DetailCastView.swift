@@ -12,18 +12,21 @@ struct DetailCastView: View {
     @Bindable var viewModel: ContentDetailViewModel
 
     @Environment(\.themeManager) private var themeManager
+    @Environment(\.horizontalSizeClass) private var hSizeClass
 
     var body: some View {
         if viewModel.allCast.isEmpty {
             emptyState
         } else {
             VStack(spacing: DesignTokens.Spacing.lg) {
-                // Cast grid
-                let columns = [
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12),
-                ]
+                // Cast grid — adaptive columns for iPhone/iPad (#14)
+                let columns: [GridItem] = hSizeClass == .regular
+                    ? [GridItem(.adaptive(minimum: 120, maximum: 160), spacing: 14)]
+                    : [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                    ]
 
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(viewModel.displayedCast, id: \.id) { actor in
@@ -81,12 +84,12 @@ struct DetailCastView: View {
             ZStack(alignment: .bottomTrailing) {
                 if let photoUrl = actor.photoUrl,
                    let url = URL(string: photoUrl) {
-                    AsyncImage(url: url) { image in
+                    CachedAsyncImage(url: url) { image in
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     } placeholder: {
-                        initialAvatar(actor.initial)
+                        AvatarPlaceholderView(name: actor.name, fontSize: 22)
                     }
                     .frame(width: 64, height: 64)
                     .clipShape(Circle())
@@ -95,7 +98,9 @@ struct DetailCastView: View {
                             .stroke(ThemeColor.textPrimary.opacity(0.08), lineWidth: 2)
                     )
                 } else {
-                    initialAvatar(actor.initial)
+                    AvatarPlaceholderView(name: actor.name, fontSize: 22)
+                        .frame(width: 64, height: 64)
+                        .clipShape(Circle())
                 }
 
                 // Navigation indicator for tappable cards
@@ -137,23 +142,7 @@ struct DetailCastView: View {
         .accessibilityAddTraits(isTappable ? .isButton : [])
     }
 
-    // Initial avatar placeholder
-    private func initialAvatar(_ initial: String) -> some View {
-        Circle()
-            .fill(
-                LinearGradient(
-                    colors: [themeManager.colors.link.opacity(0.6), themeManager.colors.brand.opacity(0.6)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .frame(width: 64, height: 64)
-            .overlay {
-                Text(initial)
-                    .font(ThemeFont.display(size: 22, weight: .bold))
-                    .foregroundStyle(ThemeColor.textPrimary)
-            }
-    }
+    // initialAvatar removed — replaced by shared AvatarPlaceholderView (#12)
 
     // Empty state
     private var emptyState: some View {

@@ -40,6 +40,7 @@ final class ContentDetailViewModel {
     var cast: [CastMember] = []
     var crew: [String: [CastMember]] = [:]
     var relatedContents: [Content] = []
+    var strippedDescription: String?
 
     var isLoading = false
     var isLoadingEpisodes = false
@@ -165,11 +166,19 @@ final class ContentDetailViewModel {
     func loadContent(slug: String, type: ContentType) async {
         isLoading = true
         error = nil
+        defer { isLoading = false }
 
         do {
             // 1. Fetch content detail first
             let fetchedContent = try await apiClient.fetchContentDetail(slug: slug, type: type)
             content = fetchedContent
+
+            // Pre-process HTML description off main thread (#3)
+            if let desc = fetchedContent.description, !desc.isEmpty {
+                strippedDescription = desc
+                    .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
 
             let resolvedSlug = fetchedContent.slug ?? slug
             let resolvedType = fetchedContent.type ?? type
@@ -198,11 +207,8 @@ final class ContentDetailViewModel {
                     await loadEpisodes(slug: resolvedSlug, seasonNumber: firstNum)
                 }
             }
-
-            isLoading = false
         } catch {
             self.error = error.localizedDescription
-            isLoading = false
         }
     }
 
@@ -232,7 +238,9 @@ final class ContentDetailViewModel {
         } else {
             expandedSeason = seasonNumber
             guard let slug = content?.slug, !slug.isEmpty else { return } // (#7)
-            await loadEpisodes(slug: slug, seasonNumber: seasonNumber)
+            // Special episodes use season 0 for API, but -1 for UI toggle
+            let apiSeason = seasonNumber == -1 ? 0 : seasonNumber
+            await loadEpisodes(slug: slug, seasonNumber: apiSeason)
         }
     }
 

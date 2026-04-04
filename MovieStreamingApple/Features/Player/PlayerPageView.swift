@@ -950,7 +950,7 @@ struct PlayerPageView: View {
         guard let content = viewModel.content else { return }
         let typePrefix = contentType == .series ? "tv" : "movie"
         // #5: Guard against nil URL
-        guard let shareURL = URL(string: "https://d9042n.online/watch/\(typePrefix)/\(content.slug ?? content.id)") else {
+        guard let shareURL = URL(string: "https://d9042n.online/watch/\(typePrefix)/\(content.effectiveSlug)") else {
             return
         }
 
@@ -989,7 +989,7 @@ struct PlayerPageView: View {
         }
 
         watchHistory.addOrUpdate(
-            slug: content.slug ?? content.id,
+            slug: content.effectiveSlug,
             contentType: contentType,
             progress: progress,
             resumePosition: playerVM.currentTime,

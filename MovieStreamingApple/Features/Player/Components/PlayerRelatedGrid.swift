@@ -35,7 +35,7 @@ struct PlayerRelatedGrid: View {
                 ], spacing: 12) {
                     ForEach(contents.prefix(9)) { content in
                         NavigationLink(value: ContentDestination(
-                            slug: content.slug ?? content.id,
+                            slug: content.effectiveSlug,
                             type: content.type ?? .movie
                         )) {
                             relatedCard(content)

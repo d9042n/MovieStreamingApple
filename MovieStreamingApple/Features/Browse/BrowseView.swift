@@ -56,7 +56,7 @@ struct BrowseView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: Content.self) { content in
             ContentDetailView(
-                slug: content.slug ?? content.id,
+                slug: content.effectiveSlug,
                 contentType: content.type ?? .movie
             )
         }
@@ -112,6 +112,9 @@ struct BrowseView: View {
         }
         .refreshable {
             await viewModel.fetchContents()
+        }
+        .onDisappear {
+            viewModel.cancelPending()
         }
     }
     
@@ -240,7 +243,7 @@ struct BrowseView: View {
                     .foregroundStyle(themeManager.colors.textMuted)
             }
         }
-        .padding(.horizontal, DesignTokens.Spacing.md)
+        .padding(.horizontal, DesignTokens.Spacing.lg)
         .padding(.vertical, DesignTokens.Spacing.sm)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CornerRadius.large))

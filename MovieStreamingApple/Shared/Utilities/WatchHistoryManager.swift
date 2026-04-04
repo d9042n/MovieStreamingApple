@@ -166,34 +166,34 @@ final class WatchHistoryManager {
 
     // MARK: - Computed Display Data
 
+    /// Pre-sorted entries by most recent — single sort, reused by all computed lists.
+    private var sortedEntries: [WatchHistoryEntry] {
+        entries.sorted { $0.lastWatchedDate > $1.lastWatchedDate }
+    }
+
     /// All entries — sorted by most recent. Used by the hero slider.
     var allDisplayData: [WatchDisplayData] {
-        entries
-            .sorted { $0.lastWatchedDate > $1.lastWatchedDate }
-            .compactMap { displayData(for: $0) }
+        sortedEntries.compactMap { displayData(for: $0) }
     }
 
     /// Continue watching: has active progress, not finished — sorted by most recent.
     var continueWatching: [WatchDisplayData] {
-        entries
+        sortedEntries
             .filter { $0.progress > 0.01 && !$0.isFinished }
-            .sorted { $0.lastWatchedDate > $1.lastWatchedDate }
             .compactMap { displayData(for: $0) }
     }
 
     /// Recently viewed: finished or barely started — sorted by most recent.
     var recentlyViewed: [WatchDisplayData] {
-        entries
+        sortedEntries
             .filter { $0.isFinished || $0.progress <= 0.01 }
-            .sorted { $0.lastWatchedDate > $1.lastWatchedDate }
             .compactMap { displayData(for: $0) }
     }
 
     /// The most recently watched entry that's still in progress (for hero).
     var lastWatched: WatchDisplayData? {
-        let entry = entries
-            .filter { !$0.isFinished && $0.progress > 0.01 }
-            .max { $0.lastWatchedDate < $1.lastWatchedDate }
+        let entry = sortedEntries
+            .first { !$0.isFinished && $0.progress > 0.01 }
             ?? entries.first
         guard let entry else { return nil }
         return displayData(for: entry)
@@ -231,11 +231,14 @@ final class WatchHistoryManager {
         let uniqueEntries = Dictionary(grouping: entries, by: \.slug)
             .compactMapValues(\.first)
 
+        // Transition to error only if we had entries but couldn't fetch ANY content
+        let slugsToFetch = uniqueEntries.keys.filter { contentCache[$0] == nil }
         let taskLogger = self.logger
+        var fetchFailCount = 0
+
         await withTaskGroup(of: (String, Content?).self) { group in
-            for (slug, entry) in uniqueEntries {
-                // Skip if already cached
-                guard contentCache[slug] == nil else { continue }
+            for slug in slugsToFetch {
+                guard let entry = uniqueEntries[slug] else { continue }
                 group.addTask { [apiClient, taskLogger] in
                     do {
                         let content = try await apiClient.fetchContentDetail(
@@ -253,12 +256,20 @@ final class WatchHistoryManager {
             for await (slug, content) in group {
                 if let content {
                     contentCache[slug] = content
+                } else {
+                    fetchFailCount += 1
                 }
             }
         }
 
-        loadingState = .loaded
-        logger.info("Fetched \(self.contentCache.count) content details for watch history")
+        // If ALL fetches failed and cache is still empty, show error state
+        if contentCache.isEmpty && fetchFailCount > 0 {
+            loadingState = .error("Không thể tải thông tin phim. Vui lòng kiểm tra kết nối mạng.")
+            logger.error("All \(fetchFailCount) content fetches failed")
+        } else {
+            loadingState = .loaded
+            logger.info("Fetched \(self.contentCache.count) content details for watch history")
+        }
     }
 
     // MARK: - Display Data Helper

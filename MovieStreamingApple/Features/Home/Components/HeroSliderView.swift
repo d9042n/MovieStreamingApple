@@ -72,6 +72,20 @@ struct HeroSliderView: View {
                         }
                     }
             )
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Nổi bật: \(contents[currentIndex].title), slide \(currentIndex + 1) trên \(contents.count)")
+            .accessibilityAdjustableAction { direction in
+                withAnimation(.easeInOut(duration: 1.2)) {
+                    switch direction {
+                    case .increment:
+                        currentIndex = (currentIndex + 1) % contents.count
+                    case .decrement:
+                        currentIndex = (currentIndex - 1 + contents.count) % contents.count
+                    @unknown default:
+                        break
+                    }
+                }
+            }
         }
     }
 
@@ -156,28 +170,17 @@ private struct HeroSlideView: View {
         GeometryReader { geo in
             ZStack(alignment: .bottomLeading) {
                 // ── LAYER 1: Full-bleed image ──
-                AsyncImage(url: backdropURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .kenBurns(isActive: isActive, maxScale: 1.10, duration: 8.0, reverse: reverseZoom, repeats: false, startDelay: 1.2)
-                            .clipped()
-                    case .failure:
-                        Rectangle()
-                            .fill(Color(white: 0.1))
-                            .overlay {
-                                Image(systemName: AppIcon.film)
-                                    .font(ThemeFont.display(size: 44))
-                                    .foregroundStyle(ThemeColor.textPrimary.opacity(0.15))
-                            }
-                    default:
-                        Rectangle()
-                            .fill(Color(white: 0.06))
-                            .overlay { ProgressView().tint(.white.opacity(0.3)) }
-                    }
+                CachedAsyncImage(url: backdropURL) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .kenBurns(isActive: isActive, maxScale: 1.10, duration: 8.0, reverse: reverseZoom, repeats: false, startDelay: 1.2)
+                        .clipped()
+                } placeholder: {
+                    Rectangle()
+                        .fill(Color(white: 0.06))
+                        .overlay { ProgressView().tint(.white.opacity(0.3)) }
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
                 .clipped()

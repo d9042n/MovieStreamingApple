@@ -52,18 +52,13 @@ struct WatchingCardView: View {
         Color.clear
             .aspectRatio(2 / 3, contentMode: .fit)
             .overlay(alignment: .top) {
-                AsyncImage(url: displayData.cardImageUrl) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    case .failure:
-                        posterPlaceholder
-                    default:
-                        posterShimmer
-                    }
+                CachedAsyncImage(url: displayData.cardImageUrl) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                } placeholder: {
+                    posterShimmer
                 }
             }
             // Progress bar overlay at bottom
@@ -85,7 +80,6 @@ struct WatchingCardView: View {
                         .padding(DesignTokens.Spacing.sm)
                 }
             }
-            .clipped()
             .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CornerRadius.poster))
     }
 
@@ -125,6 +119,8 @@ struct WatchingCardView: View {
 
     // MARK: - Placeholders
 
+    /// Placeholder is now handled by CachedAsyncImage's placeholder closure
+    /// but kept for context menu previews or other uses.
     private var posterPlaceholder: some View {
         Rectangle()
             .fill(.quaternary)

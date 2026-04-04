@@ -21,18 +21,13 @@ struct DetailPosterView: View {
         VStack(spacing: DesignTokens.Spacing.lg) {
             // MARK: - Poster Image
             ZStack(alignment: .topLeading) {
-                AsyncImage(url: posterURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 220, height: 330, alignment: .top)
-                    case .failure:
-                        posterPlaceholder
-                    default:
-                        posterShimmer
-                    }
+                CachedAsyncImage(url: posterURL) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 220, height: 330, alignment: .top)
+                } placeholder: {
+                    posterShimmer
                 }
                 .frame(width: 220, height: 330)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -54,7 +49,7 @@ struct DetailPosterView: View {
                 // Xem Phim (Watch)
                 NavigationLink(
                     value: PlayerDestination(
-                        slug: content.slug ?? content.id,
+                        slug: content.effectiveSlug,
                         type: content.type ?? .movie
                     )
                 ) {

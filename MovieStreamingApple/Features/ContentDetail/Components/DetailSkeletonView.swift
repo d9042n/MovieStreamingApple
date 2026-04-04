@@ -16,13 +16,7 @@ struct DetailSkeletonView: View {
                 Rectangle()
                     .fill(Color(white: 0.12))
                     .frame(height: 350)
-                    .overlay {
-                        LinearGradient(
-                            colors: [.clear, .white.opacity(0.04), .clear],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    }
+                    .shimmer()
                     .overlay(alignment: .bottom) {
                         LinearGradient(
                             colors: [.clear, .black],
@@ -38,6 +32,7 @@ struct DetailSkeletonView: View {
                         RoundedRectangle(cornerRadius: 16)
                             .fill(Color(white: 0.12))
                             .frame(width: 220, height: 330)
+                            .shimmer()
                             .overlay {
                                 Image(systemName: AppIcon.film)
                                     .font(ThemeFont.display(size: 36))
@@ -61,10 +56,12 @@ struct DetailSkeletonView: View {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color(white: 0.12))
                             .frame(height: 32)
+                            .shimmer()
 
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color(white: 0.12))
                             .frame(width: 200, height: 20)
+                            .shimmer()
 
                         // Rating bar skeleton
                         RoundedRectangle(cornerRadius: 12)

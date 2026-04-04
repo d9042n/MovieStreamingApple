@@ -28,7 +28,7 @@ struct PersonFilmCard: View {
                     .overlay(alignment: .top) {
                         ZStack {
                             if let posterUrl = film.posterUrl, let url = URL(string: posterUrl) {
-                                AsyncImage(url: url) { image in
+                                CachedAsyncImage(url: url) { image in
                                     image
                                         .resizable()
                                         .aspectRatio(contentMode: .fill)

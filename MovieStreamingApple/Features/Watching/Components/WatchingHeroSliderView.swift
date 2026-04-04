@@ -192,35 +192,24 @@ private struct WatchingHeroSlideView: View {
         GeometryReader { geo in
             ZStack(alignment: .bottomLeading) {
                 // ── LAYER 1: Full-bleed backdrop image ──
-                AsyncImage(url: item.heroImageUrl(for: hSizeClass)) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .kenBurns(
-                                isActive: isActive,
-                                maxScale: 1.10,
-                                duration: 8.0,
-                                reverse: reverseZoom,
-                                repeats: false,
-                                startDelay: 1.2
-                            )
-                            .clipped()
-                    case .failure:
-                        Rectangle()
-                            .fill(ThemeColor.bgCard)
-                            .overlay {
-                                Image(systemName: AppIcon.film)
-                                    .font(ThemeFont.display(size: 44))
-                                    .foregroundStyle(themeManager.colors.textPrimary.opacity(0.15))
-                            }
-                    default:
-                        Rectangle()
-                            .fill(ThemeColor.bgCard)
-                            .overlay { ProgressView().tint(themeManager.colors.brand.opacity(0.3)) }
-                    }
+                CachedAsyncImage(url: item.heroImageUrl(for: hSizeClass)) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .kenBurns(
+                            isActive: isActive,
+                            maxScale: 1.10,
+                            duration: 8.0,
+                            reverse: reverseZoom,
+                            repeats: false,
+                            startDelay: 1.2
+                        )
+                        .clipped()
+                } placeholder: {
+                    Rectangle()
+                        .fill(ThemeColor.bgCard)
+                        .overlay { ProgressView().tint(themeManager.colors.brand.opacity(0.3)) }
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
                 .clipped()
@@ -401,10 +390,10 @@ private struct WatchingHeroSlideView: View {
                                 .padding(.vertical, 12)
                                 .background(themeManager.colors.textInverse.opacity(0.1))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: DesignTokens.CornerRadius.medium)
+                                    Capsule()
                                         .stroke(themeManager.colors.textInverse.opacity(0.15), lineWidth: 1)
                                 )
-                                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CornerRadius.medium))
+                                .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
                     }

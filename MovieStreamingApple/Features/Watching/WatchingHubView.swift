@@ -129,7 +129,7 @@ struct WatchingHubView: View {
 
                 Spacer()
 
-                if items.count > 0 {
+                if !items.isEmpty {
                     Text("\(items.count) Phim")
                         .font(ThemeFont.body(size: 11))
                         .foregroundStyle(themeManager.colors.textMuted)

@@ -27,7 +27,10 @@ final class PersonDetailViewModel {
     // MARK: - State
 
     var person: PersonDetail? {
-        didSet { cachedBackdropURLs = nil } // Invalidate cache on person change (#37)
+        didSet {
+            cachedBackdropURLs = nil // Invalidate cache on person change (#37)
+            cachedSortedFilmography = [:] // Invalidate filmography sort cache (#7)
+        }
     }
     var isLoading = false
     var error: String?
@@ -143,17 +146,23 @@ final class PersonDetailViewModel {
 
     // MARK: - Filmography Helpers
 
-    /// Get sorted filmography items for a department (newest first).
+    /// Cached sorted filmography per department (#7).
+    private var cachedSortedFilmography: [String: [FilmographyItem]] = [:]
+
+    /// Get sorted filmography items for a department (newest first) — cached.
     func sortedFilmography(for dept: String) -> [FilmographyItem] {
+        if let cached = cachedSortedFilmography[dept] { return cached }
         guard let items = person?.filmography?[dept] else { return [] }
-        return items.sorted { item1, item2 in
+        let sorted = items.sorted { item1, item2 in
             let date1 = DateFormatting.extractYear(item1.releaseDate)
             let date2 = DateFormatting.extractYear(item2.releaseDate)
             return date2 < date1
         }
+        cachedSortedFilmography[dept] = sorted
+        return sorted
     }
 
-    /// Get display items (paginated or all).
+    /// Get display items (paginated or all) — reuses cached sort.
     func displayItems(for dept: String) -> [FilmographyItem] {
         let sorted = sortedFilmography(for: dept)
         let showAll = filmShowAll[dept] ?? false

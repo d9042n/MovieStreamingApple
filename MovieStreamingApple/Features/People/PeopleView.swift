@@ -159,6 +159,8 @@ struct PeopleView: View {
                             .stroke(ThemeColor.textPrimary.opacity(0.08), lineWidth: 1)
                     )
                 }
+                .accessibilityLabel("Sắp xếp: \(viewModel.selectedSort.label)")
+                .accessibilityHint("Nhấn để thay đổi cách sắp xếp")
             }
 
             // Row 2: Gender filter chips
@@ -182,6 +184,8 @@ struct PeopleView: View {
                             )
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
+                    .accessibilityLabel("Lọc giới tính: \(filter.label)")
+                    .accessibilityAddTraits(viewModel.selectedGender == filter ? .isSelected : [])
                 }
                 Spacer()
             }
@@ -261,19 +265,14 @@ struct PeopleView: View {
                 .aspectRatio(3 / 4, contentMode: .fit)
                 .overlay(alignment: .top) {
                     if let photoUrl = person.photoUrl, let url = URL(string: photoUrl) {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                            case .failure:
-                                AvatarPlaceholderView(name: person.name)
-                            default:
-                                AvatarPlaceholderView(name: person.name)
-                                    .shimmer()
-                            }
+                        CachedAsyncImage(url: url) { image in
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        } placeholder: {
+                            AvatarPlaceholderView(name: person.name)
+                                .shimmer()
                         }
                     } else {
                         AvatarPlaceholderView(name: person.name)

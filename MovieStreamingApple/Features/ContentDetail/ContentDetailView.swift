@@ -50,7 +50,7 @@ struct ContentDetailView: View {
             }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
-        .task {
+        .task(id: slug) {
             await viewModel.loadContent(slug: slug, type: contentType)
         }
     }

@@ -244,6 +244,8 @@ final class BrowseViewModel {
         isLoading = true
         error = nil
         scrollToTopTrigger = UUID()
+        // Guarantee isLoading resets on all exit paths (including stale guard returns)
+        defer { if fetchId == currentFetchId { isLoading = false } }
 
         do {
             let params = buildParams()
@@ -264,7 +266,6 @@ final class BrowseViewModel {
             hasMore = false
             nextCursor = nil
         }
-        isLoading = false
     }
 
     // MARK: - Load More (Cursor Pagination)
@@ -345,5 +346,11 @@ final class BrowseViewModel {
 
     func searchChanged() {
         applyFilters()
+    }
+
+    /// Cancel any pending search/filter tasks — call from .onDisappear.
+    func cancelPending() {
+        searchTask?.cancel()
+        searchTask = nil
     }
 }

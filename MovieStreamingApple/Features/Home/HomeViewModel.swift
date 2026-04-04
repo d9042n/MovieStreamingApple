@@ -44,14 +44,24 @@ final class HomeViewModel {
     var isLoading = false
     var error: String?
 
-    // Active tab selections
-    var activeMovieTab: ContentTab = .popular
-    var activeSeriesTab: ContentTab = .popular
+    // Active tab selections — setting these updates the cached content arrays
+    var activeMovieTab: ContentTab = .popular {
+        didSet { if oldValue != activeMovieTab { updateCurrentMovies() } }
+    }
+    var activeSeriesTab: ContentTab = .popular {
+        didSet { if oldValue != activeSeriesTab { updateCurrentSeries() } }
+    }
 
-    // MARK: - Cached Computed Properties (#30)
+    // MARK: - Cached Properties (#30)
 
     /// Cached visible genres — updated when `genres` changes.
     private(set) var visibleGenres: [Genre] = []
+
+    /// Cached movies for the currently selected tab.
+    private(set) var currentMovies: [Content] = []
+
+    /// Cached series for the currently selected tab.
+    private(set) var currentSeries: [Content] = []
 
     // MARK: - Dependencies
 
@@ -62,16 +72,6 @@ final class HomeViewModel {
     }
 
     // MARK: - Data Accessors (mirrors getTabData from website)
-
-    /// Returns movies for the currently selected tab.
-    var currentMovies: [Content] {
-        movieData(for: activeMovieTab)
-    }
-
-    /// Returns series for the currently selected tab.
-    var currentSeries: [Content] {
-        seriesData(for: activeSeriesTab)
-    }
 
     func movieData(for tab: ContentTab) -> [Content] {
         switch tab {
@@ -89,6 +89,16 @@ final class HomeViewModel {
         case .topRated: return tvTopRated
         case .latest: return tvLatest
         }
+    }
+
+    /// Update cached currentMovies from the active tab.
+    private func updateCurrentMovies() {
+        currentMovies = movieData(for: activeMovieTab)
+    }
+
+    /// Update cached currentSeries from the active tab.
+    private func updateCurrentSeries() {
+        currentSeries = seriesData(for: activeSeriesTab)
     }
 
     /// Recompute cached visibleGenres from raw genres.
@@ -182,6 +192,10 @@ final class HomeViewModel {
 
         // Update cached visible genres
         updateVisibleGenres()
+
+        // Update cached tab content arrays
+        updateCurrentMovies()
+        updateCurrentSeries()
 
         // Set error only if ALL requests failed
         if failCount == totalRequests {

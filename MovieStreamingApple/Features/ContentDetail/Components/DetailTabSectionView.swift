@@ -74,6 +74,8 @@ struct DetailTabSectionView: View {
                     .frame(height: 2)
             }
         }
+        .accessibilityLabel(tabLabel(for: tab))
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     private func tabLabel(for tab: DetailTab) -> String {

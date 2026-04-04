@@ -22,18 +22,13 @@ struct ContentCardView: View {
             Color.clear
                 .aspectRatio(2 / 3, contentMode: .fit)
                 .overlay(alignment: .top) {
-                    AsyncImage(url: posterURL) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        case .failure:
-                            posterPlaceholder
-                        default:
-                            posterShimmer
-                        }
+                    CachedAsyncImage(url: posterURL) { image in
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    } placeholder: {
+                        posterShimmer
                     }
                 }
                 .overlay(alignment: .topLeading) {

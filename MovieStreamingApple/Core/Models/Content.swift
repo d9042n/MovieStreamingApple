@@ -45,10 +45,16 @@ nonisolated struct Content: Codable, Identifiable, Hashable, Sendable {
     let createdAt: String?
     let updatedAt: String?
 
+    /// The slug to use for navigation — falls back to `id` if slug is nil or empty.
+    var effectiveSlug: String {
+        if let slug, !slug.isEmpty { return slug }
+        return id
+    }
+
     /// Computed helper: the URL path to navigate to detail.
     var detailPath: String {
         let prefix = type == .series ? "tv" : "movie"
-        return "/\(prefix)/\(slug ?? id)"
+        return "/\(prefix)/\(effectiveSlug)"
     }
 
     /// Computed helper: release year.

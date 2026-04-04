@@ -118,7 +118,7 @@ struct DetailHeaderView: View {
     /// Share button — uses SwiftUI ShareLink (no UIKit coupling #5).
     private var shareButton: some View {
         let typePrefix = content.type == .series ? "tv" : "movie"
-        let shareURL = URL(string: "https://d9042n.online/detail/\(typePrefix)/\(content.slug ?? content.id)") ?? URL(string: "https://d9042n.online")!
+        let shareURL = URL(string: "https://d9042n.online/detail/\(typePrefix)/\(content.effectiveSlug)") ?? URL(string: "https://d9042n.online")! // swiftlint:disable:this force_unwrapping — guaranteed valid
 
         return ShareLink(
             item: shareURL,
@@ -170,7 +170,7 @@ struct DetailHeaderView: View {
         if !badges.isEmpty {
             FlowLayout(spacing: 8) {
                 ForEach(badges) { badge in
-                    badge.view
+                    badgeView(for: badge)
                 }
             }
         }
@@ -181,69 +181,57 @@ struct DetailHeaderView: View {
 
         // Streaming meta
         if let quality = content.streamingMeta?.quality, !quality.isEmpty {
-            items.append(BadgeItem(id: "quality") {
-                AnyView(metaBadge(text: quality, style: .mono))
-            })
+            items.append(BadgeItem(id: "quality", content: .meta(text: quality, style: .mono)))
         }
         if let language = content.streamingMeta?.language, !language.isEmpty {
-            items.append(BadgeItem(id: "language") {
-                AnyView(metaBadge(text: language, style: .mono))
-            })
+            items.append(BadgeItem(id: "language", content: .meta(text: language, style: .mono)))
         }
         if let episodeCurrent = content.streamingMeta?.episodeCurrent, !episodeCurrent.isEmpty {
-            items.append(BadgeItem(id: "episode") {
-                AnyView(metaBadge(text: episodeCurrent, style: .highlight))
-            })
+            items.append(BadgeItem(id: "episode", content: .meta(text: episodeCurrent, style: .highlight)))
         }
         if let contentRating = content.contentRating, !contentRating.isEmpty {
-            items.append(BadgeItem(id: "rating") {
-                AnyView(metaBadge(text: contentRating, style: .amber))
-            })
+            items.append(BadgeItem(id: "rating", content: .meta(text: contentRating, style: .amber)))
         }
 
         // Stats
         if viewModel.totalViews > 0 {
-            items.append(BadgeItem(id: "views") {
-                AnyView(iconBadge(icon: AppIcon.eye, text: "\(viewModel.totalViews.formatted()) lượt xem"))
-            })
+            items.append(BadgeItem(id: "views", content: .icon(icon: AppIcon.eye, text: "\(viewModel.totalViews.formatted()) lượt xem", tint: .secondary)))
         }
         if viewModel.dailyViews > 0 {
-            items.append(BadgeItem(id: "daily") {
-                AnyView(iconBadge(icon: AppIcon.eye, text: "+\(viewModel.dailyViews) hôm nay", tint: themeManager.colors.highlight))
-            })
+            items.append(BadgeItem(id: "daily", content: .icon(icon: AppIcon.eye, text: "+\(viewModel.dailyViews) hôm nay", tint: themeManager.colors.highlight)))
         }
         if viewModel.bookmarkCount > 0 {
-            items.append(BadgeItem(id: "bookmarks") {
-                AnyView(iconBadge(icon: AppIcon.bookmark, text: "\(viewModel.bookmarkCount) theo dõi"))
-            })
+            items.append(BadgeItem(id: "bookmarks", content: .icon(icon: AppIcon.bookmark, text: "\(viewModel.bookmarkCount) theo dõi", tint: .secondary)))
         }
         if let minutes = content.durationMinutes, viewModel.isMovie {
-            items.append(BadgeItem(id: "duration") {
-                AnyView(iconBadge(icon: AppIcon.clock, text: "\(minutes) phút"))
-            })
+            items.append(BadgeItem(id: "duration", content: .icon(icon: AppIcon.clock, text: "\(minutes) phút", tint: .secondary)))
         }
         if let episodes = content.episodeCount, episodes > 1 {
-            items.append(BadgeItem(id: "epCount") {
-                AnyView(iconBadge(icon: AppIcon.film, text: "\(episodes) tập"))
-            })
+            items.append(BadgeItem(id: "epCount", content: .icon(icon: AppIcon.film, text: "\(episodes) tập", tint: .secondary)))
         }
         if let seasonCount = content.seasonCount, seasonCount > 0, viewModel.isSeries {
-            items.append(BadgeItem(id: "seasons") {
-                AnyView(iconBadge(icon: AppIcon.playCircle, text: "\(seasonCount) mùa"))
-            })
+            items.append(BadgeItem(id: "seasons", content: .icon(icon: AppIcon.playCircle, text: "\(seasonCount) mùa", tint: .secondary)))
         }
         if viewModel.isSeries {
-            items.append(BadgeItem(id: "seriesTag") {
-                AnyView(metaBadge(text: "Series", style: .highlight))
-            })
+            items.append(BadgeItem(id: "seriesTag", content: .meta(text: "Series", style: .highlight)))
         }
 
         return items
     }
 
+    @ViewBuilder
+    private func badgeView(for badge: BadgeItem) -> some View {
+        switch badge.content {
+        case .meta(let text, let style):
+            metaBadge(text: text, style: style)
+        case .icon(let icon, let text, let tint):
+            iconBadge(icon: icon, text: text, tint: tint)
+        }
+    }
+
     // MARK: - Badge Views
 
-    private enum BadgeStyle { case mono, highlight, amber }
+    // BadgeStyle moved to file scope for BadgeContent access
 
     @ViewBuilder
     private func metaBadge(text: String, style: BadgeStyle) -> some View {
@@ -304,70 +292,16 @@ struct DetailHeaderView: View {
     }
 }
 
-// MARK: - Badge Item
+private enum BadgeStyle { case mono, highlight, amber }
+
+private enum BadgeContent {
+    case meta(text: String, style: BadgeStyle)
+    case icon(icon: String, text: String, tint: Color)
+}
 
 private struct BadgeItem: Identifiable {
     let id: String
-    let view: AnyView
-
-    init(id: String, @ViewBuilder content: () -> AnyView) {
-        self.id = id
-        self.view = content()
-    }
+    let content: BadgeContent
 }
 
-// MARK: - Flow Layout (simple wrapping layout)
-
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = arrange(proposal: proposal, subviews: subviews)
-        return result.size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = arrange(proposal: proposal, subviews: subviews)
-        for (index, position) in result.positions.enumerated() {
-            subviews[index].place(
-                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
-                proposal: ProposedViewSize(result.sizes[index])
-            )
-        }
-    }
-
-    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> ArrangeResult {
-        let maxWidth = proposal.width ?? .infinity
-        var positions: [CGPoint] = []
-        var sizes: [CGSize] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth, x > 0 {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            positions.append(CGPoint(x: x, y: y))
-            sizes.append(size)
-            rowHeight = max(rowHeight, size.height)
-            x += size.width + spacing
-        }
-
-        let totalHeight = y + rowHeight
-        return ArrangeResult(
-            size: CGSize(width: maxWidth, height: totalHeight),
-            positions: positions,
-            sizes: sizes
-        )
-    }
-
-    private struct ArrangeResult {
-        let size: CGSize
-        let positions: [CGPoint]
-        let sizes: [CGSize]
-    }
-}
+// FlowLayout extracted to Shared/Components/FlowLayout.swift (#5)

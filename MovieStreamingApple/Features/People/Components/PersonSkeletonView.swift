@@ -16,11 +16,13 @@ struct PersonSkeletonView: View {
                 Rectangle()
                     .fill(ThemeColor.textPrimary.opacity(0.04))
                     .frame(height: 260)
+                    .shimmer()
 
                 // Centered photo skeleton
                 RoundedRectangle(cornerRadius: 16)
                     .fill(ThemeColor.textPrimary.opacity(0.06))
                     .frame(width: 130, height: 173)
+                    .shimmer()
                     .offset(y: -50)
                     .padding(.bottom, 8)
 
@@ -30,6 +32,7 @@ struct PersonSkeletonView: View {
                         RoundedRectangle(cornerRadius: 6)
                             .fill(ThemeColor.textPrimary.opacity(0.06))
                             .frame(width: 180, height: 26)
+                            .shimmer()
                         HStack(spacing: 6) {
                             ForEach(0..<3, id: \.self) { _ in
                                 RoundedRectangle(cornerRadius: 12)

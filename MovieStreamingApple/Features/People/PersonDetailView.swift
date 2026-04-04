@@ -50,10 +50,8 @@ struct PersonDetailView: View {
             }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
-        .task {
-            if viewModel.person == nil {
-                await viewModel.loadPerson(slug: slug)
-            }
+        .task(id: slug) {
+            await viewModel.loadPerson(slug: slug)
         }
     }
 
@@ -99,7 +97,7 @@ struct PersonDetailView: View {
     private func photoView(_ person: PersonDetail) -> some View {
         ZStack {
             if let photoUrl = person.photoUrl, let url = URL(string: photoUrl) {
-                AsyncImage(url: url) { image in
+                CachedAsyncImage(url: url) { image in
                     image
                         .resizable()
                         .aspectRatio(contentMode: .fill)

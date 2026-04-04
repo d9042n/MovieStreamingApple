@@ -142,7 +142,10 @@ final class PeopleViewModel {
                 gender: selectedGender.rawValue,
                 cursor: cursor
             )
-            people.append(contentsOf: result.data)
+            // Deduplicate to prevent duplicate entries from cursor pagination (#8)
+            let existingIds = Set(people.map(\.id))
+            let newPeople = result.data.filter { !existingIds.contains($0.id) }
+            people.append(contentsOf: newPeople)
             hasMore = result.pagination?.hasMore ?? false
             nextCursor = result.pagination?.nextCursor
             totalCount = result.pagination?.totalCount
@@ -153,12 +156,15 @@ final class PeopleViewModel {
         isLoadingMore = false
     }
 
-    /// Debounced search handler.
+    /// Debounced search handler (#9 — clean pattern).
     func onSearchChanged(_ newValue: String) {
         searchTask?.cancel()
         searchTask = Task {
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+            } catch {
+                return // Task cancelled — user typed again
+            }
             debouncedSearch = newValue
             await loadPeople()
         }

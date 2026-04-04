@@ -61,7 +61,7 @@ struct DetailEpisodesView: View {
                     // Season poster
                     if let posterUrl = season.posterUrl,
                        let url = URL(string: posterUrl) {
-                        AsyncImage(url: url) { image in
+                        CachedAsyncImage(url: url) { image in
                             image.resizable()
                                 .aspectRatio(contentMode: .fill)
                                 .frame(width: 48, height: 72, alignment: .top)
@@ -118,6 +118,8 @@ struct DetailEpisodesView: View {
 
                     if viewModel.isLoadingEpisodes && episodes.isEmpty {
                         episodeSkeletonGrid
+                    } else if viewModel.episodeLoadError != nil {
+                        episodeLoadErrorState
                     } else if episodes.isEmpty {
                         Text("Chưa có thông tin tập phim.")
                             .font(ThemeFont.body(size: 14))
@@ -167,7 +169,7 @@ struct DetailEpisodesView: View {
                 ZStack {
                     if let thumbUrl = ep.thumbnailUrl,
                        let url = URL(string: thumbUrl) {
-                        AsyncImage(url: url) { image in
+                        CachedAsyncImage(url: url) { image in
                             image.resizable()
                                 .aspectRatio(contentMode: .fill)
                         } placeholder: {
@@ -249,7 +251,7 @@ struct DetailEpisodesView: View {
     @ViewBuilder
     private var specialEpisodesSection: some View {
         let isExpanded = viewModel.expandedSeason == -1
-        let specials = viewModel.specialEpisodes
+        let specials = isExpanded ? (viewModel.episodesBySeasonMap[0] ?? []) + viewModel.specialEpisodes : viewModel.specialEpisodes
 
         VStack(spacing: 0) {
             Button {

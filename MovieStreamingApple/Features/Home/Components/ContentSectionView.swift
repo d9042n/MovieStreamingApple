@@ -64,7 +64,7 @@ struct ContentSectionView: View {
             Spacer()
 
             if !contents.isEmpty {
-                Text("\(contents.count) phim")
+                Text("Top \(contents.count)")
                     .font(ThemeFont.body(size: 11))
                     .foregroundStyle(themeManager.colors.textMuted)
                     .textCase(.uppercase)
