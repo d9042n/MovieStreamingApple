@@ -10,9 +10,9 @@
 //  │ iOS 26+            → Automatic Liquid Glass on both                 │
 //  └──────────────────────────────────────────────────────────────────────┘
 //
-//  Uses .tabViewStyle(.sidebarAdaptable) — Apple's native adaptive nav.
+//  Uses default TabView style (.automatic) — Apple's native adaptive nav.
 //  On iPhone: renders as standard tab bar.
-//  On iPad: renders as floating top bar that expands into a sidebar.
+//  On iPad: renders as floating top bar.
 //
 //  Navigation behavior:
 //  - Switching to ANY tab → pop to root (NavigationPath reset)
@@ -59,7 +59,6 @@ struct ContentView: View {
                 }
             }
         }
-        .tabViewStyle(.sidebarAdaptable)
         .tint(themeManager.colors.brand)
         .preferredColorScheme(.dark)
     }
