@@ -307,6 +307,15 @@ final class VideoPlayerViewModel {
         
         guard let url = URL(string: urlString) else { return }
         
+        // Skip quality fetching for non-HLS URLs (MP4, etc.)
+        // MP4 progressive downloads have a single fixed bitrate — no variants to parse.
+        let pathLower = url.pathExtension.lowercased()
+        let isLikelyHLS = pathLower == "m3u8" || urlString.lowercased().contains(".m3u8")
+        guard isLikelyHLS else {
+            logger.info("Non-HLS source (\(pathLower.isEmpty ? "unknown" : pathLower)), quality selection N/A")
+            return
+        }
+        
         Task(priority: .background) {
             do {
                 let (data, response) = try await URLSession.shared.data(from: url)

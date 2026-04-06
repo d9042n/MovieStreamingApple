@@ -84,16 +84,13 @@ final class PlayerPageViewModel {
         } ?? false
     }
 
+    /// Unified video source: prefers HLS (linkM3u8), falls back to direct URL (linkEmbed).
+    /// Both formats are played through the native AVPlayer for full feature parity.
     var videoSource: String {
-        activeServer?.linkM3u8 ?? ""
-    }
-
-    var embedSource: String {
-        activeServer?.linkEmbed ?? ""
-    }
-
-    var isEmbed: Bool {
-        videoSource.isEmpty && !embedSource.isEmpty
+        let m3u8 = activeServer?.linkM3u8 ?? ""
+        if !m3u8.isEmpty { return m3u8 }
+        // Fallback: linkEmbed may contain a direct MP4 URL
+        return activeServer?.linkEmbed ?? ""
     }
 
     var posterUrl: String {

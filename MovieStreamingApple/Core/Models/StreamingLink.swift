@@ -17,11 +17,21 @@ nonisolated struct StreamingLink: Codable, Identifiable, Hashable, Sendable {
     let quality: String?
     let sortOrder: Int?
 
-    /// Whether this server has a native HLS stream.
+    /// Whether this server has a direct video stream (HLS or progressive MP4).
+    var hasDirectStream: Bool {
+        let m3u8 = linkM3u8 ?? ""
+        let embed = linkEmbed ?? ""
+        return !m3u8.isEmpty || !embed.isEmpty
+    }
+
+    /// Backward compat alias — true when linkM3u8 is populated.
     var hasHLS: Bool { linkM3u8 != nil && !(linkM3u8?.isEmpty ?? true) }
 
-    /// Whether this server only has an embed link.
-    var isEmbedOnly: Bool { !hasHLS && linkEmbed != nil && !(linkEmbed?.isEmpty ?? true) }
+    /// Whether the direct URL is HLS format (.m3u8).
+    var isHLSStream: Bool {
+        guard let url = linkM3u8, !url.isEmpty else { return false }
+        return url.lowercased().contains(".m3u8")
+    }
 }
 
 /// Subtitle track for a movie or episode.

@@ -37,7 +37,7 @@ struct PlayerServerSelector: View {
                                 Text(server.serverName)
                                     .font(ThemeFont.body(size: 12, weight: .semibold))
 
-                                if server.hasHLS {
+                                if server.hasDirectStream {
                                     Text("HD")
                                         .font(ThemeFont.display(size: 8, weight: .heavy))
                                         .foregroundStyle(isActive ? .white : themeManager.colors.link)
@@ -63,7 +63,7 @@ struct PlayerServerSelector: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("\(server.serverName)\(server.hasHLS ? ", HD" : "")")
+                        .accessibilityLabel("\(server.serverName)\(server.hasDirectStream ? ", HD" : "")")
                         .accessibilityAddTraits(.isButton)
                     }
                 }

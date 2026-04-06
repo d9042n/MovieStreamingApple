@@ -104,8 +104,7 @@ struct PlayerPageView: View {
             // forward to ContentDetail/PersonDetail then popped back).
             // .task doesn't re-fire and .onChange(of: videoSource) doesn't
             // trigger because the value hasn't changed — so we must reload here.
-            if !viewModel.isEmbed,
-               playerVM.needsReload,
+            if playerVM.needsReload,
                !viewModel.videoSource.isEmpty {
                 loadPlayerSource(url: viewModel.videoSource)
             }
@@ -633,72 +632,60 @@ struct PlayerPageView: View {
 
     @ViewBuilder
     private var playerSection: some View {
-        if viewModel.isEmbed {
-            // Embed player (WKWebView) for servers without HLS
-            EmbedPlayerContainerView(
-                embedURL: viewModel.embedSource,
-                title: viewModel.displayTitle,
-                onBack: { handleBack() }
-            )
-        } else {
-            // Native HLS player
-            VideoPlayerView(
-                viewModel: playerVM,
-                title: viewModel.displayTitle,
-                subtitle: viewModel.content?.originalTitle,
-                hasPrevious: viewModel.previousEpisode != nil,
-                hasNext: viewModel.nextEpisode != nil,
-                isSeries: viewModel.isSeries,
-                isEpisodeListVisible: isEpisodeListVisible,
-                isVerticalContent: viewModel.isVerticalContent,
-                isVerticalFullScreen: isVerticalFullScreen,
-                onToggleVerticalFullscreen: {
-                    withAnimation(DesignTokens.Animation.standard) {
-                        isVerticalFullScreen.toggle()
-                    }
-                },
-                isManualFullscreen: isManualFullscreen,
-                onToggleManualFullscreen: {
-                    withAnimation(DesignTokens.Animation.standard) {
-                        isManualFullscreen.toggle()
-                    }
-                },
-                onBack: {
-                    handleBack()
-                },
-                onPrevious: {
-                    goToPreviousEpisode()
-                },
-                onNext: {
+        // Unified native player for ALL video sources (HLS + MP4)
+        VideoPlayerView(
+            viewModel: playerVM,
+            title: viewModel.displayTitle,
+            subtitle: viewModel.content?.originalTitle,
+            hasPrevious: viewModel.previousEpisode != nil,
+            hasNext: viewModel.nextEpisode != nil,
+            isSeries: viewModel.isSeries,
+            isEpisodeListVisible: isEpisodeListVisible,
+            isVerticalContent: viewModel.isVerticalContent,
+            isVerticalFullScreen: isVerticalFullScreen,
+            onToggleVerticalFullscreen: {
+                withAnimation(DesignTokens.Animation.standard) {
+                    isVerticalFullScreen.toggle()
+                }
+            },
+            isManualFullscreen: isManualFullscreen,
+            onToggleManualFullscreen: {
+                withAnimation(DesignTokens.Animation.standard) {
+                    isManualFullscreen.toggle()
+                }
+            },
+            onBack: {
+                handleBack()
+            },
+            onPrevious: {
+                goToPreviousEpisode()
+            },
+            onNext: {
+                goToNextEpisode()
+            },
+            onEpisodeList: {
+                withAnimation {
+                    isEpisodeListVisible.toggle()
+                }
+            },
+            onSettings: {
+                showSettings = true
+            }
+        )
+        .onAppear {
+            // Setup auto-play next callback.
+            playerVM.onPlaybackFinished = { [viewModel] in
+                if viewModel.isSeries, viewModel.nextEpisode != nil {
                     goToNextEpisode()
-                },
-                onEpisodeList: {
-                    withAnimation {
-                        isEpisodeListVisible.toggle()
-                    }
-                },
-                onSettings: {
-                    showSettings = true
                 }
-            )
-            .onAppear {
-                // Setup auto-play next callback.
-                // Note: In SwiftUI struct views, closures capture `self` value-type
-                // but @State references are stable. Reading viewModel properties
-                // inside the closure always gets fresh state.
-                playerVM.onPlaybackFinished = { [viewModel] in
-                    if viewModel.isSeries, viewModel.nextEpisode != nil {
-                        goToNextEpisode()
-                    }
-                }
-                // Setup error retry: try next server
-                playerVM.onError = { [viewModel] in
-                    viewModel.tryNextServer()
-                }
-                // Lock portrait for vertical content on appear
-                if viewModel.isVerticalContent {
-                    lockPortrait()
-                }
+            }
+            // Setup error retry: try next server
+            playerVM.onError = { [viewModel] in
+                viewModel.tryNextServer()
+            }
+            // Lock portrait for vertical content on appear
+            if viewModel.isVerticalContent {
+                lockPortrait()
             }
         }
     }

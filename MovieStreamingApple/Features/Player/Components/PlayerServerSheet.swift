@@ -28,7 +28,7 @@ struct PlayerServerSheet: View {
                             .font(ThemeFont.body(size: 16))
                             .foregroundStyle(ThemeColor.textPrimary)
 
-                        if server.hasHLS {
+                        if server.hasDirectStream {
                             Text("HD")
                                 .font(ThemeFont.body(size: 9, weight: .bold))
                                 .foregroundStyle(themeManager.colors.link)

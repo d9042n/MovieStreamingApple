@@ -63,8 +63,9 @@ struct PlayerSettingsSheet: View {
                 }
 
                 // === Quality ===
-                if playerVM.availableQualities.count > 1 {
-                    Section {
+                Section {
+                    if playerVM.availableQualities.count > 1 {
+                        // HLS: multiple qualities available — show picker
                         NavigationLink {
                             PlayerQualitySheet(
                                 availableQualities: playerVM.availableQualities,
@@ -82,9 +83,17 @@ struct PlayerSettingsSheet: View {
                                     .lineLimit(1)
                             }
                         }
-                    } header: {
-                        Text("Chất lượng")
+                    } else {
+                        // MP4/single quality: show info label (non-interactive)
+                        HStack {
+                            Label("Chất lượng video", systemImage: AppIcon.sparklesTv)
+                            Spacer()
+                            Text("Gốc")
+                                .foregroundStyle(ThemeColor.textMuted)
+                        }
                     }
+                } header: {
+                    Text("Chất lượng")
                 }
 
                 // === Subtitles ===
@@ -137,7 +146,7 @@ struct PlayerSettingsSheet: View {
                                 HStack(spacing: 4) {
                                     Text(activeServerName)
                                         .foregroundStyle(ThemeColor.textMuted)
-                                    if activeServerHasHLS {
+                                    if activeServerHasDirectStream {
                                         Text("HD")
                                             .font(ThemeFont.body(size: 9, weight: .bold))
                                             .foregroundStyle(themeManager.colors.link)
@@ -195,8 +204,8 @@ struct PlayerSettingsSheet: View {
         return servers[activeServerIndex].serverName
     }
 
-    private var activeServerHasHLS: Bool {
+    private var activeServerHasDirectStream: Bool {
         guard activeServerIndex >= 0, activeServerIndex < servers.count else { return false }
-        return servers[activeServerIndex].hasHLS
+        return servers[activeServerIndex].hasDirectStream
     }
 }
