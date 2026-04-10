@@ -535,7 +535,10 @@ nonisolated struct WatchDetailResponse: Codable, Sendable {
             releaseDate: releaseDate, durationMinutes: durationMinutes,
             seasonCount: seasonCount, episodeCount: episodeCount,
             latestEpisodeAt: nil, contentRating: contentRating,
-            averageRating: averageRating, ratingCount: ratingCount,
+            // Detail API: rating fields are inside `stats`, not top-level.
+            // Fallback ensures Content model always has rating data.
+            averageRating: averageRating ?? stats?.averageRating,
+            ratingCount: ratingCount ?? stats?.ratingCount,
             totalViews: totalViews, status: status, network: network,
             isFeatured: nil, isPublished: nil, type: type,
             genres: genres, streamingMeta: streamingMeta,

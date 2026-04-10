@@ -3,7 +3,7 @@
 //  MovieStreamingApple
 //
 //  A content section with tab filtering — Netflix/Disney+ horizontal carousel style.
-//  Used for both "Phim Lẻ" (movies) and "Phim Bộ" (series) on HomeView.
+//  Used for both "Movies" and "TV Series" sections on HomeView.
 //
 //  Layout: Header + Tab Picker → Horizontal scroll rail of poster cards
 //  Same visual language as CollectionRailView but with interactive tab filtering.

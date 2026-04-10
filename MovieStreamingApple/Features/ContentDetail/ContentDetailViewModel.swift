@@ -66,11 +66,12 @@ final class ContentDetailViewModel {
     var isSeries: Bool { content?.type == .series }
 
     /// Tabs available for current content (movies don't have episodes tab).
+    /// Note: .reviews removed — feature not yet implemented (hidden for App Store review)
     var availableTabs: [DetailTab] {
         if isSeries {
-            return [.overview, .episodes, .cast, .reviews]
+            return [.overview, .episodes, .cast]
         }
-        return [.overview, .cast, .reviews]
+        return [.overview, .cast]
     }
 
     /// Release year extracted from content.
@@ -92,8 +93,16 @@ final class ContentDetailViewModel {
     }
 
     /// Rating count from stats or fallback.
+    /// Detail API: rating data lives in `stats` object (not top-level like list API)
     var ratingCount: Int {
         content?.stats?.ratingCount ?? content?.ratingCount ?? 0
+    }
+
+    /// Average rating from stats or top-level fallback.
+    /// Detail API: `averageRating` is inside `stats`, not at top-level.
+    /// List API: `averageRating` is at top-level. This covers both cases.
+    var averageRating: Double {
+        content?.stats?.averageRating ?? content?.averageRating ?? 0
     }
 
     /// All cast: prefer credits API, fallback to content.topCast.

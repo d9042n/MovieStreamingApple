@@ -101,30 +101,31 @@ struct DetailPosterView: View {
                 .disabled(content.trailerUrl == nil)
                 .opacity(content.trailerUrl != nil ? 1 : 0.5)
 
-                // Đánh Dấu (Bookmark) — disabled, no backend yet
-                Button {
-                    // No action — feature not yet implemented
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: AppIcon.bookmark)
-                            .font(ThemeFont.body(size: 13))
-                        Text("ĐÁNH DẤU")
-                            .font(ThemeFont.body(size: 13, weight: .bold))
-                            .tracking(2)
-                    }
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(.clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(ThemeColor.textPrimary.opacity(0.08), lineWidth: 1)
-                    )
-                }
-                .disabled(true)
-                .opacity(0.5)
-                .accessibilityHint("Tính năng đang phát triển")
+                // MARK: [UNIMPLEMENTED] Bookmark button — hidden for App Store review
+                // No bookmark API/backend implemented yet
+                // Button {
+                //     // No action — feature not yet implemented
+                // } label: {
+                //     HStack(spacing: 8) {
+                //         Image(systemName: AppIcon.bookmark)
+                //             .font(ThemeFont.body(size: 13))
+                //         Text("ĐÁNH DẤU")
+                //             .font(ThemeFont.body(size: 13, weight: .bold))
+                //             .tracking(2)
+                //     }
+                //     .foregroundStyle(.tertiary)
+                //     .frame(maxWidth: .infinity)
+                //     .padding(.vertical, 14)
+                //     .background(.clear)
+                //     .clipShape(RoundedRectangle(cornerRadius: 12))
+                //     .overlay(
+                //         RoundedRectangle(cornerRadius: 12)
+                //             .stroke(ThemeColor.textPrimary.opacity(0.08), lineWidth: 1)
+                //     )
+                // }
+                // .disabled(true)
+                // .opacity(0.5)
+                // .accessibilityHint("Tính năng đang phát triển")
             }
             .frame(width: 220)
         }

@@ -208,7 +208,7 @@ struct DetailOverviewView: View {
 
     // MARK: - Helpers
 
-    /// Format ISO date string to Vietnamese locale — uses shared DateFormatting (#35).
+    /// Format ISO date string to localized display — uses shared DateFormatting (#35).
     private func formatDate(_ dateString: String) -> String {
         DateFormatting.formatMedium(dateString)
     }

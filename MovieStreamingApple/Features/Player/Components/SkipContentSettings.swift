@@ -57,7 +57,7 @@ final class SkipContentSettings {
     // Priority hierarchy:
     //   1. API metadata per-episode (future) — highest
     //   2. User per-content setting (current workaround)
-    //   3. Default (Tắt / 0s)
+    //   3. Default (Off / 0s)
 
     /// Suggested intro skip duration from backend API (nil = not available).
     var suggestedIntroDuration: TimeInterval? = nil

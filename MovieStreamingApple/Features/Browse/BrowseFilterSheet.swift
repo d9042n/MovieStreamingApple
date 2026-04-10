@@ -283,7 +283,7 @@ struct BrowseFilterSheet: View {
                         }
                     }
 
-                    // "Xem thêm" button
+                    // "Show More" button
                     if remainingCount > 0 {
                         Button {
                             withAnimation(DesignTokens.Animation.standard) {

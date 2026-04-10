@@ -44,47 +44,52 @@ struct DetailHeaderView: View {
             VStack(spacing: DesignTokens.Spacing.md) {
                 // Actions row — centered
                 HStack(spacing: DesignTokens.Spacing.lg) {
-                    // Yêu thích — disabled with accessibility (#13)
-                    disabledActionButton(icon: AppIcon.heart, label: "Yêu thích")
-                    divider
-                    // Chia sẻ — functional
+                    // MARK: [UNIMPLEMENTED] Yêu thích button — hidden for App Store review
+                    // No favorite system implemented yet
+                    // disabledActionButton(icon: AppIcon.heart, label: "Yêu thích")
+                    // divider
+                    // Share — functional
                     shareButton
                 }
                 .frame(maxWidth: .infinity)
 
-                Divider()
-                    .overlay(ThemeColor.textPrimary.opacity(0.08))
+                // Rating row — only show when real rating data exists from API
+                // Detail API returns rating in `stats` object, use viewModel.averageRating
+                // for proper fallback (stats → top-level)
+                if viewModel.averageRating > 0 {
+                    Divider()
+                        .overlay(ThemeColor.textPrimary.opacity(0.08))
 
-                // Rating row — centered
-                HStack(spacing: DesignTokens.Spacing.xl) {
-                    // Average rating
-                    VStack(spacing: 4) {
-                        ratingStars(score: content.averageRating ?? 0)
-                        Text(viewModel.ratingCount > 0
-                            ? "\(viewModel.ratingCount.formatted()) đánh giá"
-                            : "Chưa có đánh giá")
-                            .font(ThemeFont.body(size: 11, weight: .light))
-                            .foregroundStyle(ThemeColor.textMuted)
-                    }
-
-                    divider
-
-                    // User rating — disabled (no backend yet)
-                    VStack(spacing: 4) {
-                        Text("Đánh giá phim:")
-                            .font(ThemeFont.body(size: 11, weight: .light))
-                            .foregroundStyle(ThemeColor.textMuted)
-                        HStack(spacing: 2) {
-                            ForEach(1...5, id: \.self) { _ in
-                                Image(systemName: AppIcon.star)
-                                    .font(ThemeFont.body(size: 14))
-                                    .foregroundStyle(ThemeColor.textMuted)
-                            }
+                    HStack(spacing: DesignTokens.Spacing.xl) {
+                        // Average rating (read-only display from API data)
+                        VStack(spacing: 4) {
+                            ratingStars(score: viewModel.averageRating)
+                            Text(viewModel.ratingCount > 0
+                                ? "\(viewModel.ratingCount.formatted()) đánh giá"
+                                : "")
+                                .font(ThemeFont.body(size: 11, weight: .light))
+                                .foregroundStyle(ThemeColor.textMuted)
                         }
-                        .opacity(0.5)
+
+                        // MARK: [UNIMPLEMENTED] User rating stars — hidden for App Store review
+                        // No rating submission API implemented yet
+                        // divider
+                        // VStack(spacing: 4) {
+                        //     Text("Đánh giá phim:")
+                        //         .font(ThemeFont.body(size: 11, weight: .light))
+                        //         .foregroundStyle(ThemeColor.textMuted)
+                        //     HStack(spacing: 2) {
+                        //         ForEach(1...5, id: \.self) { _ in
+                        //             Image(systemName: AppIcon.star)
+                        //                 .font(ThemeFont.body(size: 14))
+                        //                 .foregroundStyle(ThemeColor.textMuted)
+                        //         }
+                        //     }
+                        //     .opacity(0.5)
+                        // }
                     }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
             }
             .padding(DesignTokens.Spacing.md)
             .background(.ultraThinMaterial)
@@ -101,19 +106,20 @@ struct DetailHeaderView: View {
 
     // MARK: - Sub-views
 
-    /// Disabled action button for features without backend data yet.
-    @ViewBuilder
-    private func disabledActionButton(icon: String, label: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(ThemeFont.body(size: 14))
-                .foregroundStyle(.tertiary)
-            Text(label)
-                .font(ThemeFont.body(size: 13, weight: .bold))
-                .foregroundStyle(.tertiary)
-        }
-        .opacity(0.5)
-    }
+    // MARK: [UNIMPLEMENTED] disabledActionButton — hidden for App Store review
+    // Kept for future use when favorite/bookmark features have backend support
+    // @ViewBuilder
+    // private func disabledActionButton(icon: String, label: String) -> some View {
+    //     HStack(spacing: 6) {
+    //         Image(systemName: icon)
+    //             .font(ThemeFont.body(size: 14))
+    //             .foregroundStyle(.tertiary)
+    //         Text(label)
+    //             .font(ThemeFont.body(size: 13, weight: .bold))
+    //             .foregroundStyle(.tertiary)
+    //     }
+    //     .opacity(0.5)
+    // }
 
     /// Share button — uses SwiftUI ShareLink (no UIKit coupling #5).
     private var shareButton: some View {

@@ -79,7 +79,7 @@ struct HomeView: View {
 
     @ViewBuilder
     private var mainSections: some View {
-        // Section 1: Phim Lẻ (Movies) — horizontal rail
+        // Section 1: Movies — horizontal rail
         ContentSectionView(
             title: "Phim Lẻ",
             tabs: ContentTab.allCases,
@@ -88,7 +88,7 @@ struct HomeView: View {
             isLoading: viewModel.isLoading
         )
 
-        // Section 2: Phim Bộ (Series) — horizontal rail
+        // Section 2: TV Series — horizontal rail
         ContentSectionView(
             title: "Phim Bộ",
             tabs: ContentTab.allCases,

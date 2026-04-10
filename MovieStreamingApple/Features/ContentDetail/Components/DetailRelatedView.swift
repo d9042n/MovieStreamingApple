@@ -3,7 +3,7 @@
 //  MovieStreamingApple
 //
 //  Related movies/series grid section.
-//  Mirrors the website's "Phim Liên Quan" section in ContentDetail.tsx.
+//  Mirrors the website's "Related Content" section in ContentDetail.tsx.
 //
 
 import SwiftUI

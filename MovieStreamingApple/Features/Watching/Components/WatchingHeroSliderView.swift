@@ -247,7 +247,7 @@ private struct WatchingHeroSlideView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Spacer()
 
-                    // Badge: "Đang Xem" or "Đã Xem Xong"
+                    // Badge: "Watching" or "Finished"
                     HStack(spacing: DesignTokens.Spacing.sm) {
                         Label(
                             item.entry.isFinished ? "Đã Xem Xong" : "Đang Xem",

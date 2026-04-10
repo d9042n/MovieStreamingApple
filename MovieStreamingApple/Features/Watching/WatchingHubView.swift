@@ -3,7 +3,7 @@
 //  MovieStreamingApple
 //
 //  "Continue Watching" hub — center tab root view.
-//  Layout: Hero Slider (đang xem dở) → "Đang Xem" carousel → "Xem Gần Đây" carousel.
+//  Layout: Hero Slider (in-progress) → "Continue Watching" carousel → "Recently Viewed" carousel.
 //  Empty state shows discovery prompt.
 //
 //  Data flow: WatchHistoryManager loads minimal entries from UserDefaults,

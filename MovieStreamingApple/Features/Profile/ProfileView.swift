@@ -29,48 +29,51 @@ struct ProfileView: View {
                         themeRow
                     }
 
-                    // Account (placeholder — not yet implemented)
-                    settingsSection(title: "Tài khoản") {
-                        settingsRow(
-                            icon: AppIcon.personFill,
-                            title: "Thông tin cá nhân",
-                            subtitle: "Đăng nhập để đồng bộ",
-                            isDisabled: true
-                        )
-                        sectionDivider
-                        settingsRow(
-                            icon: AppIcon.bellFill,
-                            title: "Thông báo",
-                            subtitle: "Bật",
-                            isDisabled: true
-                        )
-                    }
+                    // MARK: [UNIMPLEMENTED] Account section — hidden for App Store review
+                    // settingsSection(title: "Tài khoản") {
+                    //     settingsRow(
+                    //         icon: AppIcon.personFill,
+                    //         title: "Thông tin cá nhân",
+                    //         subtitle: "Đăng nhập để đồng bộ",
+                    //         isDisabled: true
+                    //     )
+                    //     sectionDivider
+                    //     settingsRow(
+                    //         icon: AppIcon.bellFill,
+                    //         title: "Thông báo",
+                    //         subtitle: "Bật",
+                    //         isDisabled: true
+                    //     )
+                    // }
 
-                    // Library
-                    settingsSection(title: "Thư viện") {
-                        settingsRow(
-                            icon: AppIcon.clockArrowCirclepath,
-                            title: "Lịch sử xem",
-                            subtitle: historyManager.isEmpty
-                                ? nil
-                                : "\(historyManager.entries.count) phim",
-                            isDisabled: true
-                        )
-                        sectionDivider
-                        settingsRow(
-                            icon: AppIcon.heartFill,
-                            title: "Yêu thích",
-                            subtitle: nil,
-                            isDisabled: true
-                        )
-                        sectionDivider
-                        settingsRow(
-                            icon: AppIcon.arrowDownCircleFill,
-                            title: "Tải xuống",
-                            subtitle: nil,
-                            isDisabled: true
-                        )
-                    }
+                    // MARK: [UNIMPLEMENTED] Library section — hidden for App Store review
+                    // Watch History: data exists (WatchHistoryManager) but row navigation not implemented
+                    // Favorites: no favorite system implemented
+                    // Downloads: no offline download system implemented
+                    // settingsSection(title: "Thư viện") {
+                    //     settingsRow(
+                    //         icon: AppIcon.clockArrowCirclepath,
+                    //         title: "Lịch sử xem",
+                    //         subtitle: historyManager.isEmpty
+                    //             ? nil
+                    //             : "\(historyManager.entries.count) phim",
+                    //         isDisabled: true
+                    //     )
+                    //     sectionDivider
+                    //     settingsRow(
+                    //         icon: AppIcon.heartFill,
+                    //         title: "Yêu thích",
+                    //         subtitle: nil,
+                    //         isDisabled: true
+                    //     )
+                    //     sectionDivider
+                    //     settingsRow(
+                    //         icon: AppIcon.arrowDownCircleFill,
+                    //         title: "Tải xuống",
+                    //         subtitle: nil,
+                    //         isDisabled: true
+                    //     )
+                    // }
 
                     // Video Player
                     settingsSection(title: "Trình Phát (Player)") {
@@ -159,16 +162,18 @@ struct ProfileView: View {
                 .font(ThemeFont.display(size: 20, weight: .bold))
                 .foregroundStyle(themeManager.colors.textPrimary)
 
-            Button {
-                // TODO: Implement login
-            } label: {
-                Text("Đăng nhập")
-                    .font(ThemeFont.body(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, DesignTokens.Spacing.xxl)
-                    .padding(.vertical, DesignTokens.Spacing.sm)
-                    .background(themeManager.colors.brand, in: Capsule())
-            }
+            // MARK: [UNIMPLEMENTED] Login button — hidden for App Store review
+            // No authentication system implemented yet
+            // Button {
+            //     // TODO: Implement login
+            // } label: {
+            //     Text("Đăng nhập")
+            //         .font(ThemeFont.body(size: 14, weight: .semibold))
+            //         .foregroundStyle(.white)
+            //         .padding(.horizontal, DesignTokens.Spacing.xxl)
+            //         .padding(.vertical, DesignTokens.Spacing.sm)
+            //         .background(themeManager.colors.brand, in: Capsule())
+            // }
         }
         .padding(.vertical, DesignTokens.Spacing.lg)
     }

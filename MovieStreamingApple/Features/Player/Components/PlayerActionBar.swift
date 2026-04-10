@@ -23,19 +23,21 @@ struct PlayerActionBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // My List / Favorite (coming soon — shows toast)
-            actionButton(
-                icon: AppIcon.plus,
-                label: "Danh sách",
-                isComingSoon: true
-            ) { }
+            // MARK: [UNIMPLEMENTED] My List button — hidden for App Store review
+            // No favorite/list system implemented yet
+            // actionButton(
+            //     icon: AppIcon.plus,
+            //     label: "Danh sách",
+            //     isComingSoon: true
+            // ) { }
 
-            // Rate / Bookmark (coming soon — shows toast)
-            actionButton(
-                icon: AppIcon.handThumbsup,
-                label: "Đánh giá",
-                isComingSoon: true
-            ) { }
+            // MARK: [UNIMPLEMENTED] Rate button — hidden for App Store review
+            // No rating submission API implemented yet
+            // actionButton(
+            //     icon: AppIcon.handThumbsup,
+            //     label: "Đánh giá",
+            //     isComingSoon: true
+            // ) { }
 
             // Share (functional)
             actionButton(

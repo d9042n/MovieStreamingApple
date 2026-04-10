@@ -2,7 +2,7 @@
 //  BlogSectionView.swift
 //  MovieStreamingApple
 //
-//  Blog posts section — equivalent to the website's "Tin Mới" section.
+//  Blog posts section — equivalent to the website's "Latest News" section.
 //
 
 import SwiftUI
