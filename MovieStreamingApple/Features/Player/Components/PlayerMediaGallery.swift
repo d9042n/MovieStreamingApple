@@ -185,7 +185,7 @@ struct MediaLightboxView: View {
             // Image viewer with zoom
             TabView(selection: $selectedIndex) {
                 ForEach(Array(images.enumerated()), id: \.element.id) { index, item in
-                    ZoomableImageView(url: item.url)
+                    ZoomableImageView(url: item.url, isActive: index == selectedIndex)
                         .tag(index)
                 }
             }
@@ -257,8 +257,6 @@ struct MediaLightboxView: View {
                 .padding(.bottom, 32)
             }
         }
-        // Reset zoom when switching images
-        .onChange(of: selectedIndex) { _, _ in }
     }
 }
 
@@ -268,11 +266,21 @@ struct MediaLightboxView: View {
 /// Double-tap resets scale to 1x.
 private struct ZoomableImageView: View {
     let url: String
+    /// Whether this page is the currently visible one. When it becomes inactive
+    /// the zoom/pan is reset so returning to the image shows it at 1x.
+    var isActive: Bool = true
 
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
+
+    private func resetZoom() {
+        scale = 1.0
+        lastScale = 1.0
+        offset = .zero
+        lastOffset = .zero
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -309,6 +317,9 @@ private struct ZoomableImageView: View {
             // A11Y-01: Provide meaningful label for VoiceOver
             .accessibilityLabel("Hình ảnh phóng to")
             .accessibilityHint("Chạm hai lần để phóng to hoặc thu nhỏ")
+            .onChange(of: isActive) { _, active in
+                if !active { resetZoom() }
+            }
         }
     }
 

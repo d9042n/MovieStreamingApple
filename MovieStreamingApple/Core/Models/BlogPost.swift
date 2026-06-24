@@ -22,7 +22,14 @@ nonisolated struct BlogPost: Codable, Identifiable, Hashable, Sendable {
         guard let dateStr = publishedAt else { return nil }
         let isoFormatter = ISO8601DateFormatter()
         isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = isoFormatter.date(from: dateStr) else { return nil }
+        var parsed = isoFormatter.date(from: dateStr)
+        if parsed == nil {
+            // Retry without fractional seconds — ISO8601DateFormatter is strict and
+            // returns nil for "2026-01-02T03:04:05Z" when .withFractionalSeconds is set.
+            isoFormatter.formatOptions = [.withInternetDateTime]
+            parsed = isoFormatter.date(from: dateStr)
+        }
+        guard let date = parsed else { return nil }
         let displayFormatter = DateFormatter()
         displayFormatter.locale = Locale(identifier: "vi_VN")
         displayFormatter.dateStyle = .medium

@@ -49,6 +49,19 @@ final class PlayerPageViewModel {
         return servers[idx]
     }
 
+    /// Bumped whenever the effective playback source identity changes (server,
+    /// episode or season). PlayerPageView observes THIS — not the URL string — so
+    /// switching between two servers that happen to share the same stream URL
+    /// (mirror/CDN duplicates) still reloads the player and failover works.
+    private(set) var sourceVersion: Int = 0
+    private func bumpSource() { sourceVersion &+= 1 }
+
+    /// Resolve a server's effective stream URL (HLS preferred, else embed/MP4).
+    private func sourceURL(for server: StreamingLink) -> String {
+        let m3u8 = server.linkM3u8 ?? ""
+        return m3u8.isEmpty ? (server.linkEmbed ?? "") : m3u8
+    }
+
     // MARK: - Subtitles
 
     var subtitles: [SubtitleTrack] = []
@@ -87,10 +100,8 @@ final class PlayerPageViewModel {
     /// Unified video source: prefers HLS (linkM3u8), falls back to direct URL (linkEmbed).
     /// Both formats are played through the native AVPlayer for full feature parity.
     var videoSource: String {
-        let m3u8 = activeServer?.linkM3u8 ?? ""
-        if !m3u8.isEmpty { return m3u8 }
-        // Fallback: linkEmbed may contain a direct MP4 URL
-        return activeServer?.linkEmbed ?? ""
+        guard let server = activeServer else { return "" }
+        return sourceURL(for: server)
     }
 
     var posterUrl: String {
@@ -139,6 +150,37 @@ final class PlayerPageViewModel {
         seasons.first { $0.id == activeSeasonId }
     }
 
+    /// Seasons sorted by number — used for cross-season adjacency.
+    private var sortedSeasons: [Season] {
+        seasons.sorted { ($0.seasonNumber ?? 0) < ($1.seasonNumber ?? 0) }
+    }
+
+    /// Whether a season is a valid navigation target — skip seasons KNOWN to be
+    /// empty (episodeCount == 0). A nil count means "unknown" → allow (don't drop a
+    /// real season over missing metadata). Prevents rolling into an episode-less
+    /// season (which would open an unplayable, empty player).
+    private func seasonHasEpisodes(_ season: Season) -> Bool { (season.episodeCount ?? 1) > 0 }
+
+    /// The next non-empty season after the active one (nil if none).
+    var nextSeason: Season? {
+        guard let active = activeSeason,
+              let idx = sortedSeasons.firstIndex(where: { $0.id == active.id }) else { return nil }
+        return sortedSeasons[(idx + 1)...].first(where: seasonHasEpisodes)
+    }
+
+    /// The previous non-empty season before the active one (nil if none).
+    var previousSeason: Season? {
+        guard let active = activeSeason,
+              let idx = sortedSeasons.firstIndex(where: { $0.id == active.id }) else { return nil }
+        return sortedSeasons[..<idx].last(where: seasonHasEpisodes)
+    }
+
+    /// True if there is a next episode in this season OR a following season to roll into.
+    var hasNextEpisode: Bool { nextEpisode != nil || nextSeason != nil }
+
+    /// True if there is a previous episode in this season OR a preceding season.
+    var hasPreviousEpisode: Bool { previousEpisode != nil || previousSeason != nil }
+
     // MARK: - Init
 
     init(apiClient: APIClientProtocol = APIClient()) {
@@ -167,6 +209,7 @@ final class PlayerPageViewModel {
                     servers = []
                     subtitles = []
                 }
+                bumpSource()   // trigger the initial player load for movies
             }
 
             // 3. Handle seasons for series
@@ -205,14 +248,24 @@ final class PlayerPageViewModel {
     // MARK: - Episodes
 
     /// Load episodes for the active season.
-    func loadEpisodes(slug: String, episodeId: String? = nil, episodeNumber: Int? = nil) async {
+    /// - Parameter selectLast: when true, selects the LAST episode after loading
+    ///   (used when rolling back into the previous season).
+    func loadEpisodes(slug: String, episodeId: String? = nil, episodeNumber: Int? = nil, selectLast: Bool = false) async {
         guard let season = activeSeason else { return }
         let seasonNum = season.seasonNumber ?? 1
+
+        func applySelection() {
+            if selectLast, let last = seasonEpisodes.last {
+                setCurrentEpisode(last)
+            } else {
+                selectEpisode(episodeId: episodeId, episodeNumber: episodeNumber)
+            }
+        }
 
         // Check cache
         if let cached = episodesCache[activeSeasonId] {
             seasonEpisodes = cached
-            selectEpisode(episodeId: episodeId, episodeNumber: episodeNumber)
+            applySelection()
             return
         }
 
@@ -221,7 +274,7 @@ final class PlayerPageViewModel {
             let episodes = try await apiClient.fetchSeriesEpisodes(slug: slug, seasonNumber: seasonNum)
             episodesCache[activeSeasonId] = episodes
             seasonEpisodes = episodes
-            selectEpisode(episodeId: episodeId, episodeNumber: episodeNumber)
+            applySelection()
         } catch {
             logger.error("Episodes fetch failed: \(error.localizedDescription)")
         }
@@ -258,6 +311,7 @@ final class PlayerPageViewModel {
         // Reset view tracking so each episode gets its own view count
         viewTracked = false
         trackViewIfNeeded()
+        bumpSource()
     }
 
     /// Navigate to a specific episode by ID.
@@ -266,39 +320,74 @@ final class PlayerPageViewModel {
         setCurrentEpisode(ep)
     }
 
-    /// Go to the next episode.
-    func goToNextEpisode() {
-        guard let next = nextEpisode else { return }
-        setCurrentEpisode(next)
+    /// Go to the next episode, rolling into the first episode of the next season
+    /// when the current season is exhausted (web parity).
+    func goToNextEpisode(slug: String) async {
+        if let next = nextEpisode {
+            setCurrentEpisode(next)
+            return
+        }
+        guard let next = nextSeason else { return }
+        clearSeasonState(activeSeasonId: next.id)
+        await loadEpisodes(slug: slug)            // selects first episode by default
     }
 
-    /// Go to the previous episode.
-    func goToPreviousEpisode() {
-        guard let prev = previousEpisode else { return }
-        setCurrentEpisode(prev)
+    /// Go to the previous episode, rolling back into the LAST episode of the
+    /// previous season when at the start of the current season.
+    func goToPreviousEpisode(slug: String) async {
+        if let prev = previousEpisode {
+            setCurrentEpisode(prev)
+            return
+        }
+        guard let prev = previousSeason else { return }
+        clearSeasonState(activeSeasonId: prev.id)
+        await loadEpisodes(slug: slug, selectLast: true)
     }
 
     // MARK: - Change Season
 
     func changeSeason(to seasonId: String, slug: String) async {
-        activeSeasonId = seasonId
-        activeServerIndex = 0
+        guard seasonId != activeSeasonId else { return }
+        clearSeasonState(activeSeasonId: seasonId)
         await loadEpisodes(slug: slug)
+    }
+
+    /// Reset per-season state so the UI never shows the previous season's
+    /// episode/servers/subtitles while the new season loads asynchronously.
+    private func clearSeasonState(activeSeasonId newSeasonId: String) {
+        activeSeasonId = newSeasonId
+        activeServerIndex = 0
+        currentEpisode = nil
+        seasonEpisodes = []
+        servers = []
+        subtitles = []
     }
 
     // MARK: - Server Selection
 
     func selectServer(at index: Int) {
         guard index >= 0 && index < servers.count else { return }
+        guard index != activeServerIndex else { return }
         activeServerIndex = index
+        bumpSource()
     }
 
-    /// Try the next server (called on player error).
+    /// Try the next server with a DIFFERENT stream URL (called on player error).
+    /// Skips mirror servers that resolve to the same URL as the one that just
+    /// failed, so automatic failover actually changes the source.
     func tryNextServer() {
-        let nextIdx = activeServerIndex + 1
-        if nextIdx < servers.count {
-            activeServerIndex = nextIdx
+        let failedURL = videoSource
+        var idx = activeServerIndex + 1
+        while idx < servers.count {
+            let candidate = sourceURL(for: servers[idx])
+            if !candidate.isEmpty && candidate != failedURL {
+                activeServerIndex = idx
+                bumpSource()
+                return
+            }
+            idx += 1
         }
+        // No distinct server remains — the error stays surfaced to the user.
     }
 
     // MARK: - Credits

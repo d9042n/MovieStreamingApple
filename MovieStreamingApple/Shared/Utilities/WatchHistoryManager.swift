@@ -37,6 +37,22 @@ struct WatchHistoryEntry: Codable, Identifiable, Hashable, Sendable {
     /// Whether user has essentially finished (progress >= 95%)
     var isFinished: Bool { progress >= 0.95 }
 
+    /// Whether this entry should appear in "Continue Watching".
+    ///
+    /// A series keeps being resumable as long as it still tracks a position — a
+    /// current episode id, OR just a season (the cross-season advance marker,
+    /// written when finishing a season finale with a following season: progress is
+    /// reset to 0 and episodeId is nil because the next season's episode id isn't
+    /// known yet). A series is only "done" when its last available episode is
+    /// finished and no further episode/season exists.
+    /// (Normal series entries always carry a non-nil episodeId, so the extra
+    /// `seasonNumber != nil` clause only ever captures that advance marker.)
+    var isInProgress: Bool {
+        if isFinished { return false }
+        if contentType == .series, currentEpisodeId != nil || seasonNumber != nil { return true }
+        return progress > 0.01
+    }
+
     // MARK: - Backward Compatibility Codable
     
     enum CodingKeys: String, CodingKey {
@@ -118,7 +134,9 @@ struct WatchDisplayData: Identifiable, Hashable {
 
     /// Remaining time formatted for display
     var remainingTimeFormatted: String? {
-        guard let mins = durationMinutes, mins > 0, entry.progress < 1.0 else { return nil }
+        // Use !isFinished (progress < 0.95) — NOT progress < 1.0 — so finished items
+        // (which appear under "Recently Viewed") never show a remaining-time badge.
+        guard let mins = durationMinutes, mins > 0, !entry.isFinished else { return nil }
         let totalSeconds = mins * 60
         let remaining = Int(Double(totalSeconds) * (1.0 - entry.progress))
         if remaining >= 3600 {
@@ -127,7 +145,9 @@ struct WatchDisplayData: Identifiable, Hashable {
         if remaining >= 60 {
             return "\(remaining / 60) phút còn"
         }
-        return nil
+        // Still in progress (guarded above) but <60s remaining, possibly 0 after
+        // Int truncation — show a label rather than hiding it entirely.
+        return "Dưới 1 phút"
     }
 
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -171,32 +191,33 @@ final class WatchHistoryManager {
         entries.sorted { $0.lastWatchedDate > $1.lastWatchedDate }
     }
 
-    /// All entries — sorted by most recent. Used by the hero slider.
-    var allDisplayData: [WatchDisplayData] {
-        sortedEntries.compactMap { displayData(for: $0) }
-    }
+    // MARK: - Cached Display Data (#7)
+    // Rebuilt only when `entries` or `contentCache` change — avoids re-sorting
+    // and re-mapping on every view body evaluation.
+
+    /// All entries with resolved content — sorted by most recent. Used by the hero slider.
+    private(set) var allDisplayData: [WatchDisplayData] = []
 
     /// Continue watching: has active progress, not finished — sorted by most recent.
-    var continueWatching: [WatchDisplayData] {
-        sortedEntries
-            .filter { $0.progress > 0.01 && !$0.isFinished }
-            .compactMap { displayData(for: $0) }
-    }
+    private(set) var continueWatching: [WatchDisplayData] = []
 
     /// Recently viewed: finished or barely started — sorted by most recent.
-    var recentlyViewed: [WatchDisplayData] {
-        sortedEntries
-            .filter { $0.isFinished || $0.progress <= 0.01 }
-            .compactMap { displayData(for: $0) }
-    }
+    private(set) var recentlyViewed: [WatchDisplayData] = []
 
     /// The most recently watched entry that's still in progress (for hero).
-    var lastWatched: WatchDisplayData? {
-        let entry = sortedEntries
-            .first { !$0.isFinished && $0.progress > 0.01 }
-            ?? entries.first
-        guard let entry else { return nil }
-        return displayData(for: entry)
+    private(set) var lastWatched: WatchDisplayData?
+
+    /// Recompute cached display lists from current entries + content cache.
+    private func rebuildDisplayData() {
+        let all = sortedEntries.compactMap { displayData(for: $0) }
+        allDisplayData = all
+        // Series with episode tracking stay in "Continue Watching" even right
+        // after finishing an episode (bookmark advances to the next one).
+        continueWatching = all.filter { $0.entry.isInProgress }
+        recentlyViewed = all.filter { !$0.entry.isInProgress }
+        // #8: fall back to the most-recent resolved entry (already sorted), not
+        // the raw insertion order.
+        lastWatched = all.first { $0.entry.isInProgress } ?? all.first
     }
 
     /// Whether there's any watch history at all.
@@ -222,17 +243,27 @@ final class WatchHistoryManager {
             return
         }
 
-        // Skip if already loaded for this session
-        if case .loaded = loadingState, !contentCache.isEmpty { return }
-
-        loadingState = .loading
-
         // Deduplicate by slug (multiple episodes → same slug for series)
         let uniqueEntries = Dictionary(grouping: entries, by: \.slug)
             .compactMapValues(\.first)
 
-        // Transition to error only if we had entries but couldn't fetch ANY content
+        // Only fetch slugs not already cached. Do NOT blanket-skip just because we
+        // loaded once this session — otherwise a freshly-watched title never shows
+        // in "Continue Watching" until the app is relaunched.
         let slugsToFetch = uniqueEntries.keys.filter { contentCache[$0] == nil }
+        if slugsToFetch.isEmpty {
+            rebuildDisplayData()
+            loadingState = .loaded
+            return
+        }
+
+        // Only show the full-screen loading state on the FIRST load (empty cache).
+        // When we already have content, fetch the new slug(s) quietly so the hub
+        // doesn't flash a spinner every time the user returns after watching something.
+        if contentCache.isEmpty {
+            loadingState = .loading
+        }
+
         let taskLogger = self.logger
         var fetchFailCount = 0
 
@@ -267,6 +298,7 @@ final class WatchHistoryManager {
             loadingState = .error("Không thể tải thông tin phim. Vui lòng kiểm tra kết nối mạng.")
             logger.error("All \(fetchFailCount) content fetches failed")
         } else {
+            rebuildDisplayData()
             loadingState = .loaded
             logger.info("Fetched \(self.contentCache.count) content details for watch history")
         }
@@ -329,6 +361,7 @@ final class WatchHistoryManager {
             entries = Array(entries.prefix(Self.maxEntries))
         }
 
+        rebuildDisplayData()
         saveToDisk()
     }
 
@@ -336,12 +369,14 @@ final class WatchHistoryManager {
 
     func remove(entryId: String) {
         entries.removeAll { $0.id == entryId }
+        rebuildDisplayData()
         saveToDisk()
     }
 
     func clearAll() {
         entries.removeAll()
         contentCache.removeAll()
+        rebuildDisplayData()
         saveToDisk()
     }
 

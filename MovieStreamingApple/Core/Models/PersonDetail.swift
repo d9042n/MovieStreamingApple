@@ -70,19 +70,27 @@ enum SocialLinksRaw: Codable, Sendable {
         }
     }
 
+    /// Snake-case decoder for the string fallback below. Must match the shared
+    /// APIClient decoder's strategy so `imdb_id` maps to `imdbId` consistently.
+    private static let snakeDecoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.keyDecodingStrategy = .convertFromSnakeCase
+        return d
+    }()
+
     /// Parse into a usable structure.
     var parsed: ParsedSocialLinks {
         switch self {
         case .object(let links):
             return links
         case .string(let str):
-            // Try base64 decode first, then JSON
+            // Try base64 decode first, then JSON (both with snake_case mapping).
             if let data = Data(base64Encoded: str),
-               let links = try? JSONDecoder().decode(ParsedSocialLinks.self, from: data) {
+               let links = try? Self.snakeDecoder.decode(ParsedSocialLinks.self, from: data) {
                 return links
             }
             if let data = str.data(using: .utf8),
-               let links = try? JSONDecoder().decode(ParsedSocialLinks.self, from: data) {
+               let links = try? Self.snakeDecoder.decode(ParsedSocialLinks.self, from: data) {
                 return links
             }
             return ParsedSocialLinks()
@@ -96,12 +104,9 @@ nonisolated struct ParsedSocialLinks: Codable, Sendable {
     var facebookId: String?
     var instagramId: String?
 
-    enum CodingKeys: String, CodingKey {
-        case imdbId = "imdb_id"
-        case twitterId = "twitter_id"
-        case facebookId = "facebook_id"
-        case instagramId = "instagram_id"
-    }
+    // NOTE: No explicit snake_case CodingKeys here. The shared APIClient decoder
+    // uses `.convertFromSnakeCase`, which already maps imdb_id → imdbId; explicit
+    // "imdb_id" keys would be double-converted and NEVER match (all fields nil).
 
     var hasAny: Bool {
         imdbId != nil || twitterId != nil || facebookId != nil || instagramId != nil

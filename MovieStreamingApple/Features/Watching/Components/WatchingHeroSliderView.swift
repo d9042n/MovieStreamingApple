@@ -18,9 +18,24 @@ struct WatchingHeroSliderView: View {
     let onDetail: (WatchDisplayData) -> Void
 
     @State private var currentIndex = 0
+    @State private var isOnScreen = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.themeManager) private var themeManager
     @Environment(\.horizontalSizeClass) private var hSizeClass
+
+    /// Auto-advance only runs when visible and the app is active (#10).
+    private var autoAdvanceActive: Bool {
+        isOnScreen && scenePhase == .active && !reduceMotion && items.count > 1
+    }
+
+    /// `currentIndex` clamped to current bounds. Reading through this avoids a blank
+    /// hero / stalled auto-advance when an item is deleted and `items` shrinks below
+    /// the retained `currentIndex`.
+    private var safeIndex: Int {
+        guard !items.isEmpty else { return 0 }
+        return min(max(currentIndex, 0), items.count - 1)
+    }
 
     var body: some View {
         if items.isEmpty {
@@ -34,13 +49,13 @@ struct WatchingHeroSliderView: View {
                         if isAdjacentSlide(index) {
                             WatchingHeroSlideView(
                                 item: item,
-                                isActive: currentIndex == index,
+                                isActive: safeIndex == index,
                                 reduceMotion: reduceMotion,
                                 reverseZoom: !index.isMultiple(of: 2),
                                 onContinue: { onContinue(item) },
                                 onDetail: { onDetail(item) }
                             )
-                            .opacity(currentIndex == index ? 1 : 0)
+                            .opacity(safeIndex == index ? 1 : 0)
                         }
                     }
                 }
@@ -56,12 +71,21 @@ struct WatchingHeroSliderView: View {
                 }
             }
             // Auto-advance timer
-            .task(id: currentIndex) {
-                guard !reduceMotion, items.count > 1 else { return }
+            .task(id: "\(safeIndex)-\(autoAdvanceActive)") {
+                guard autoAdvanceActive else { return }
                 try? await Task.sleep(for: .seconds(9.2))
                 guard !Task.isCancelled else { return }
                 withAnimation(.easeInOut(duration: 1.2)) {
-                    currentIndex = (currentIndex + 1) % items.count
+                    currentIndex = (safeIndex + 1) % items.count
+                }
+            }
+            .onScrollVisibilityChange(threshold: 0.2) { visible in
+                isOnScreen = visible
+            }
+            // Clamp the stored index when an item is deleted and the list shrinks.
+            .onChange(of: items.count) { _, newCount in
+                if currentIndex >= newCount {
+                    currentIndex = max(0, newCount - 1)
                 }
             }
             // Swipe gesture
@@ -73,9 +97,9 @@ struct WatchingHeroSliderView: View {
                         // ANIM-01: Use faster animation for manual swipe vs auto-advance
                         withAnimation(.easeInOut(duration: 0.5)) {
                             if value.translation.width < -50 {
-                                currentIndex = (currentIndex + 1) % items.count
+                                currentIndex = (safeIndex + 1) % items.count
                             } else if value.translation.width > 50 {
-                                currentIndex = (currentIndex - 1 + items.count) % items.count
+                                currentIndex = (safeIndex - 1 + items.count) % items.count
                             }
                         }
                     }
@@ -87,32 +111,34 @@ struct WatchingHeroSliderView: View {
 
     private var pageIndicator: some View {
         HStack(spacing: 6) {
-            ForEach(0..<items.count, id: \.self) { index in
+            // Iterate by stable element id (not a runtime-variable Range<Int>) so
+            // deleting an item doesn't trip SwiftUI's constant-range ForEach warning.
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, _ in
                 Capsule()
-                    .fill(index == currentIndex
+                    .fill(index == safeIndex
                           ? themeManager.colors.brand
                           : themeManager.colors.textPrimary.opacity(0.3))
-                    .frame(width: index == currentIndex ? 28 : 8, height: 6)
+                    .frame(width: index == safeIndex ? 28 : 8, height: 6)
                     .shadow(
-                        color: index == currentIndex
+                        color: index == safeIndex
                             ? themeManager.colors.brand.opacity(0.6) : .clear,
                         radius: 6
                     )
-                    .animation(reduceMotion ? .none : DesignTokens.Animation.standard, value: currentIndex)
+                    .animation(reduceMotion ? .none : DesignTokens.Animation.standard, value: safeIndex)
             }
         }
         // A11Y-02: Make page indicator accessible
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Trang \(currentIndex + 1) trên \(items.count)")
+        .accessibilityLabel("Trang \(safeIndex + 1) trên \(items.count)")
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment:
                 withAnimation(.easeInOut(duration: 0.5)) {
-                    currentIndex = (currentIndex + 1) % items.count
+                    currentIndex = (safeIndex + 1) % items.count
                 }
             case .decrement:
                 withAnimation(.easeInOut(duration: 0.5)) {
-                    currentIndex = (currentIndex - 1 + items.count) % items.count
+                    currentIndex = (safeIndex - 1 + items.count) % items.count
                 }
             @unknown default:
                 break
@@ -125,9 +151,9 @@ struct WatchingHeroSliderView: View {
     /// Only return true for current, previous, and next slide indices (wrapping).
     private func isAdjacentSlide(_ index: Int) -> Bool {
         guard items.count > 2 else { return true }
-        let prev = (currentIndex - 1 + items.count) % items.count
-        let next = (currentIndex + 1) % items.count
-        return index == currentIndex || index == prev || index == next
+        let prev = (safeIndex - 1 + items.count) % items.count
+        let next = (safeIndex + 1) % items.count
+        return index == safeIndex || index == prev || index == next
     }
 
     // MARK: - Ambient Brand Glow

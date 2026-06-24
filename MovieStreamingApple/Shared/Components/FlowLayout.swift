@@ -34,6 +34,7 @@ struct FlowLayout: Layout {
         var x: CGFloat = 0
         var y: CGFloat = 0
         var rowHeight: CGFloat = 0
+        var maxX: CGFloat = 0
 
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
@@ -46,11 +47,15 @@ struct FlowLayout: Layout {
             sizes.append(size)
             rowHeight = max(rowHeight, size.height)
             x += size.width + spacing
+            maxX = max(maxX, x - spacing)   // right edge of the last placed item
         }
 
         let totalHeight = y + rowHeight
+        // Report actual content width when the proposal is unconstrained (.infinity);
+        // returning an infinite width breaks layout inside an HStack/ScrollView.
+        let reportedWidth = maxWidth.isFinite ? maxWidth : maxX
         return ArrangeResult(
-            size: CGSize(width: maxWidth, height: totalHeight),
+            size: CGSize(width: reportedWidth, height: totalHeight),
             positions: positions,
             sizes: sizes
         )

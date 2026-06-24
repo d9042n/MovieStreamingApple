@@ -218,13 +218,19 @@ struct VideoPlayerView: View {
                 }
 
                 Button {
+                    // Preserve position on manual retry too (#4).
+                    let retryResume = viewModel.currentTime > 30
+                        ? viewModel.currentTime
+                        : viewModel.resumeTime
                     viewModel.loadSource(
                         url: viewModel.currentVideoURL,
                         subtitles: viewModel.currentSubtitles,
                         poster: viewModel.posterURL,
                         autoPlay: true,
                         movieId: viewModel.movieId,
-                        episodeId: viewModel.episodeId
+                        episodeId: viewModel.episodeId,
+                        resumePosition: retryResume,
+                        autoResume: retryResume != nil
                     )
                 } label: {
                     HStack(spacing: 6) {

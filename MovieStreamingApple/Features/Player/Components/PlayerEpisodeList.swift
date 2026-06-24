@@ -115,14 +115,16 @@ struct PlayerEpisodeList: View {
                 }
             }
             .frame(maxHeight: 400)
-            .onAppear {
-                if let activeId = currentEpisodeId {
-                    // Slight delay to let layout complete
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            proxy.scrollTo(activeId, anchor: .center)
-                        }
-                    }
+            // Auto-scroll to the active episode. `.task(id:)` is tied to the view
+            // lifecycle (auto-cancelled if it disappears) and re-runs when the
+            // active episode changes — replacing a fixed asyncAfter that could fire
+            // after the view was gone or before layout completed.
+            .task(id: currentEpisodeId) {
+                guard let activeId = currentEpisodeId else { return }
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    proxy.scrollTo(activeId, anchor: .center)
                 }
             }
         }
@@ -249,7 +251,7 @@ struct PlayerEpisodeList: View {
     }
 
     private var episodeSkeleton: some View {
-        VStack(spacing: 0) {
+        LazyVStack(spacing: 0) {
             ForEach(0..<5, id: \.self) { _ in
                 HStack(spacing: 10) {
                     RoundedRectangle(cornerRadius: 8)

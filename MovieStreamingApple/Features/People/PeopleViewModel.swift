@@ -158,6 +158,9 @@ final class PeopleViewModel {
 
     /// Debounced search handler (#9 — clean pattern).
     func onSearchChanged(_ newValue: String) {
+        // Ignore programmatic resets (e.g. clearFilters set searchText = "") where
+        // the value already matches debouncedSearch — avoids a duplicate load.
+        guard newValue != debouncedSearch else { return }
         searchTask?.cancel()
         searchTask = Task {
             do {
@@ -177,8 +180,12 @@ final class PeopleViewModel {
 
     /// Clear all filters.
     func clearFilters() async {
-        searchText = ""
+        // Cancel any pending debounced search and set debouncedSearch FIRST so the
+        // .searchable onChange (firing for searchText = "") becomes a no-op and we
+        // don't race a second loadPeople().
+        searchTask?.cancel()
         debouncedSearch = ""
+        searchText = ""
         selectedGender = .all
         selectedSort = .nameAsc
         await loadPeople()

@@ -27,6 +27,9 @@ private let kResumeNearEndThreshold: TimeInterval = 60.0 // Don't show resume if
 @MainActor
 final class VideoPlayerViewModel {
 
+    /// Tracks whether we've already retried the current source (avoids infinite retry loops).
+    private var hasRetriedCurrentSource = false
+
     // MARK: - Player State
 
     /// The underlying AVPlayer instance.
@@ -233,6 +236,7 @@ final class VideoPlayerViewModel {
     func loadSource(url: String, subtitles: [SubtitleTrack] = [], poster: String = "", autoPlay: Bool = false, movieId: String? = nil, episodeId: String? = nil, resumePosition: TimeInterval? = nil, autoResume: Bool = false) {
         // Lightweight reset — preserves AVPlayer instance (no black flash)
         resetForNewSource()
+        hasRetriedCurrentSource = false
 
         currentVideoURL = url
         currentSubtitles = subtitles
@@ -251,7 +255,17 @@ final class VideoPlayerViewModel {
             return
         }
 
-        let asset = AVURLAsset(url: videoURL)
+        // Provide standard browser-like HTTP headers so streaming CDNs don't
+        // reject the request. Many HLS servers require a valid User-Agent and/or
+        // Origin/Referer header to serve segments.
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1",
+            "Origin": "https://d9042n.online",
+            "Referer": "https://d9042n.online/"
+        ]
+        let asset = AVURLAsset(url: videoURL, options: [
+            "AVURLAssetHTTPHeaderFieldsKey": headers
+        ])
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = 30
         item.preferredPeakBitRate = selectedQuality.peakBitRate // Apply current quality preference
@@ -301,40 +315,72 @@ final class VideoPlayerViewModel {
     }
 
     private func fetchAvailableQualities(from urlString: String) {
-        // Reset qualities
+        // Remember the user's prior preference (by resolution) so it survives a
+        // retry / episode reload instead of silently snapping back to Auto.
+        let previousResolution: String? = {
+            if case .fixed(let info) = selectedQuality { return info.resolution }
+            return nil
+        }()
+
+        // The available list is manifest-specific — reset it. Keep `selectedQuality`
+        // until we know whether the new manifest still offers that resolution.
         self.availableQualities = [.auto]
-        self.selectedQuality = .auto
-        
-        guard let url = URL(string: urlString) else { return }
-        
+
+        guard let url = URL(string: urlString) else {
+            self.selectedQuality = .auto
+            return
+        }
+
         // Skip quality fetching for non-HLS URLs (MP4, etc.)
         // MP4 progressive downloads have a single fixed bitrate — no variants to parse.
         let pathLower = url.pathExtension.lowercased()
         let isLikelyHLS = pathLower == "m3u8" || urlString.lowercased().contains(".m3u8")
         guard isLikelyHLS else {
             logger.info("Non-HLS source (\(pathLower.isEmpty ? "unknown" : pathLower)), quality selection N/A")
+            self.selectedQuality = .auto
+            self.playerItem?.preferredPeakBitRate = 0
             return
         }
-        
-        Task(priority: .background) {
+
+        Task(priority: .background) { [weak self] in
             do {
                 let (data, response) = try await URLSession.shared.data(from: url)
                 guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else { return }
                 guard let content = String(data: data, encoding: .utf8) else { return }
-                
-                let parsedQualities = parseM3U8MasterPlaylist(content)
+
+                let parsedQualities = Self.parseM3U8MasterPlaylist(content)
                 await MainActor.run {
-                    if !parsedQualities.isEmpty {
-                        self.availableQualities = [.auto] + parsedQualities.map { .fixed($0) }
+                    guard let self else { return }
+                    guard !parsedQualities.isEmpty else { return }
+                    self.availableQualities = [.auto] + parsedQualities.map { .fixed($0) }
+                    // Re-apply the user's prior choice if the new manifest still has it,
+                    // otherwise fall back to Auto. Keep the player item's cap in sync.
+                    if let res = previousResolution {
+                        if let match = parsedQualities.first(where: { $0.resolution == res }) {
+                            self.selectedQuality = .fixed(match)
+                        } else {
+                            self.selectedQuality = .auto
+                        }
+                        self.playerItem?.preferredPeakBitRate = self.selectedQuality.peakBitRate
                     }
                 }
             } catch {
                 logger.error("Failed to fetch/parse M3U8 Master Playlist: \(error.localizedDescription)")
+                await MainActor.run {
+                    guard let self else { return }
+                    // Manifest unavailable → keep the displayed selection consistent with
+                    // the (reset) availableQualities so the quality sheet isn't stuck on a
+                    // fixed option that no longer exists.
+                    if self.availableQualities.count <= 1, case .fixed = self.selectedQuality {
+                        self.selectedQuality = .auto
+                        self.playerItem?.preferredPeakBitRate = 0
+                    }
+                }
             }
         }
     }
 
-    private func parseM3U8MasterPlaylist(_ content: String) -> [VideoQualityInfo] {
+    private nonisolated static func parseM3U8MasterPlaylist(_ content: String) -> [VideoQualityInfo] {
         var qualities: [VideoQualityInfo] = []
         let lines = content.components(separatedBy: .newlines)
         
@@ -452,22 +498,40 @@ final class VideoPlayerViewModel {
         }
     }
 
-    /// Binary search for the cue active at the given time.
+    /// Find the cue active at the given time.
+    ///
+    /// Cues are sorted by `startTime` but the parser does NOT guarantee they are
+    /// non-overlapping, so a strict disjoint binary search can skip an earlier
+    /// long cue. Instead: binary-search the rightmost cue whose `startTime <= time`,
+    /// then scan backwards for the first cue still active. The backward scan is
+    /// bounded to cues starting within `maxCueLookback` seconds of `time`, which
+    /// keeps it O(small) for any realistic cue length.
     private func findActiveCue(at time: TimeInterval) -> SubtitleCue? {
+        guard !subtitleCues.isEmpty else { return nil }
+
         var low = 0
         var high = subtitleCues.count - 1
-
+        var idx = -1
         while low <= high {
             let mid = (low + high) / 2
-            let cue = subtitleCues[mid]
-
-            if cue.isActive(at: time) {
-                return cue
-            } else if time < cue.startTime {
-                high = mid - 1
-            } else {
+            if subtitleCues[mid].startTime <= time {
+                idx = mid
                 low = mid + 1
+            } else {
+                high = mid - 1
             }
+        }
+
+        guard idx >= 0 else { return nil }
+
+        let maxCueLookback: TimeInterval = 30
+        let earliestRelevantStart = time - maxCueLookback
+        var i = idx
+        while i >= 0 {
+            let cue = subtitleCues[i]
+            if cue.startTime < earliestRelevantStart { break }
+            if cue.isActive(at: time) { return cue }
+            i -= 1
         }
 
         return nil
@@ -503,12 +567,35 @@ final class VideoPlayerViewModel {
         hapticImpact(.light)
     }
 
+    // MARK: - Scrub (gesture-layer swipe seeking)
+
+    /// Update the scrub preview WITHOUT issuing an expensive precise `seek` on
+    /// every drag frame. Only `currentTime` (and the indicator HUD) update live;
+    /// the real seek is committed once on release via `commitScrub()` (#3).
+    func previewScrub(to time: TimeInterval) {
+        isScrubbing = true
+        currentTime = max(0, min(time, duration))
+    }
+
+    /// Commit the scrub: perform a single precise seek to the previewed position.
+    func commitScrub() {
+        guard isScrubbing else { return }
+        let target = currentTime
+        isScrubbing = false
+        scrubDelta = 0
+        seek(to: target)
+    }
+
     // MARK: - Seeking
 
     /// Seek to a specific time in seconds.
     func seek(to time: TimeInterval) {
         guard let player = player else { return }
-        let clampedTime = max(0, min(time, duration))
+        // Only clamp to the upper bound when `duration` is a usable finite value
+        // (it is 0/unknown before ready and could be non-finite for live edge cases).
+        let upperBounded = (duration.isFinite && duration > 0) ? min(time, duration) : time
+        let clampedTime = max(0, upperBounded)
+        guard clampedTime.isFinite else { return }
         let cmTime = CMTime(seconds: clampedTime, preferredTimescale: 600)
         isSeeking = true
         currentTime = clampedTime
@@ -727,8 +814,12 @@ final class VideoPlayerViewModel {
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             // Queue is .main — safe to use MainActor.assumeIsolated (no Task allocation)
             MainActor.assumeIsolated {
-                guard let self = self, !self.isSeeking else { return }
-                self.currentTime = time.seconds
+                guard let self = self, !self.isSeeking, !self.isScrubbing else { return }
+                // Guard against NaN/±inf (seek/stall transitions, indefinite timebases)
+                // which would poison the scrubber, resume saving and layout math.
+                let t = time.seconds
+                guard t.isFinite else { return }
+                self.currentTime = t
                 self.updateCurrentSubtitleCue()
             }
         }
@@ -762,15 +853,62 @@ final class VideoPlayerViewModel {
                 guard let self = self else { return }
                 switch item.status {
                 case .readyToPlay:
-                    self.duration = item.duration.seconds
+                    // Indefinite/live durations report `.seconds == NaN`; sanitize so
+                    // progress, seek clamping and skip boundaries never see a non-finite value.
+                    let itemDuration = item.duration
+                    let seconds = (itemDuration.isNumeric && itemDuration.seconds.isFinite) ? itemDuration.seconds : 0
+                    self.duration = seconds
                     self.isBuffering = false
-                    self.setupSkipBoundaryObserver(duration: item.duration.seconds)
+                    self.setupSkipBoundaryObserver(duration: seconds)
                     // Execute deferred seek now that duration is available
                     if let pending = self.pendingSeekTime {
                         self.pendingSeekTime = nil
                         self.seek(to: pending)
                     }
                 case .failed:
+                    // Log detailed error info for diagnostics
+                    if let error = item.error {
+                        logger.error("AVPlayerItem failed: \(error.localizedDescription)")
+                        let nsError = error as NSError
+                        logger.error("Error domain: \(nsError.domain), code: \(nsError.code)")
+                        if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                            logger.error("Underlying: \(underlyingError.domain) \(underlyingError.code) — \(underlyingError.localizedDescription)")
+                        }
+                    }
+                    // Log AVPlayerItem error log events (network errors, HTTP status codes, etc.)
+                    if let errorLog = item.errorLog() {
+                        for event in errorLog.events {
+                            logger.error("ErrorLog: domain=\(event.errorDomain) code=\(event.errorStatusCode) comment=\(event.errorComment ?? "none") URI=\(event.uri ?? "none")")
+                        }
+                    }
+
+                    // Auto-retry once before surfacing the error to the user.
+                    // Handles transient network glitches or CDN hiccups.
+                    if !self.hasRetriedCurrentSource, !self.currentVideoURL.isEmpty {
+                        logger.info("Auto-retrying current source...")
+                        // Preserve playback position across the retry so the user
+                        // resumes where they left off instead of restarting (#4).
+                        // Capture BEFORE loadSource — it resets currentTime/resumeTime.
+                        let retryResume = self.currentTime > kResumeThreshold
+                            ? self.currentTime
+                            : self.resumeTime
+                        self.loadSource(
+                            url: self.currentVideoURL,
+                            subtitles: self.currentSubtitles,
+                            poster: self.posterURL,
+                            autoPlay: true,
+                            movieId: self.movieId,
+                            episodeId: self.episodeId,
+                            resumePosition: retryResume,
+                            autoResume: retryResume != nil
+                        )
+                        // Mark AFTER loadSource — loadSource() resets the flag to false,
+                        // so setting it here is what makes "retry exactly once" stick.
+                        // (Setting it before would be wiped → unbounded retry storm.)
+                        self.hasRetriedCurrentSource = true
+                        return
+                    }
+
                     self.playerError = item.error?.localizedDescription ?? String(localized: "Lỗi phát video")
                     self.isBuffering = false
                     self.onError?()
@@ -851,6 +989,7 @@ final class VideoPlayerViewModel {
         isSeeking = false
         isPlaying = false
         isBuffering = true
+        isFinished = false
         showSeekForward = false
         showSeekBackward = false
         seekForwardAmount = 0
@@ -872,6 +1011,8 @@ final class VideoPlayerViewModel {
     func cleanup() {
         // Save progress one last time before cleanup
         saveResumeProgress()
+        // Flush any pending debounced subtitle-appearance change so it isn't lost.
+        subtitleSettings.flush()
         resetForNewSource()
 
         volumeObservation?.invalidate()
@@ -967,20 +1108,24 @@ final class VideoPlayerViewModel {
 
     /// Dismiss the resume toast without seeking.
     func dismissPlayerResumeToast() {
-        showResumeToast = false
-        resumeTime = nil
         resumeAutoDismissTimer?.cancel()
+        // Animate the hide and keep `resumeTime` so the outgoing toast retains its
+        // content for the removal transition; it is reset by resetForNewSource on
+        // the next source. Clearing it in the same frame cuts the slide-out short.
+        withAnimation(DesignTokens.Animation.standard) {
+            showResumeToast = false
+        }
     }
 
     /// Start periodic progress saving.
     private func startProgressSaving() {
         progressSaveTimer?.cancel()
-        progressSaveTimer = Task {
+        progressSaveTimer = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(kResumeSaveInterval))
-                guard !Task.isCancelled else { return }
-                if isPlaying && currentTime > 0 {
-                    saveResumeProgress()
+                guard let self, !Task.isCancelled else { return }
+                if self.isPlaying && self.currentTime > 0 {
+                    self.saveResumeProgress()
                 }
             }
         }
@@ -1044,7 +1189,9 @@ final class VideoPlayerViewModel {
     }
 
     private func handleSkipBoundary() {
-        guard !isSeeking else { return }
+        // `!isFinished` prevents the outro boundary from re-firing onPlaybackFinished()
+        // (e.g. when the user replays or scrubs near the end after finishing).
+        guard !isSeeking, !isFinished else { return }
         
         let introDuration = skipSettings.introSkipDuration
         let outroDuration = skipSettings.outroSkipDuration

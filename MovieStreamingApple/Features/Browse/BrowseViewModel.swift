@@ -209,7 +209,15 @@ final class BrowseViewModel {
         }
 
         var components = URLComponents()
-        components.queryItems = queryItems
+        // Encode each value with a query-VALUE-safe set so characters like
+        // '+', '&', '=' survive (URLComponents.percentEncodedQuery leaves '+' raw,
+        // which the server would read as a space).
+        components.percentEncodedQueryItems = queryItems.map {
+            URLQueryItem(
+                name: $0.name,
+                value: $0.value?.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed)
+            )
+        }
         return components.percentEncodedQuery ?? ""
     }
 
@@ -242,6 +250,7 @@ final class BrowseViewModel {
         fetchId = currentFetchId
 
         isLoading = true
+        isLoadingMore = false   // a fresh fetch supersedes any in-flight pagination
         error = nil
         scrollToTopTrigger = UUID()
         // Guarantee isLoading resets on all exit paths (including stale guard returns)
@@ -272,25 +281,38 @@ final class BrowseViewModel {
 
     func loadMore() async {
         guard hasMore, let cursor = nextCursor, !isLoadingMore else { return }
+        // Capture the active fetch identity so a filter/search change that starts
+        // a new fetchContents() mid-pagination invalidates this stale page (#1).
+        let currentFetchId = fetchId
         isLoadingMore = true
+        defer { isLoadingMore = false }
 
         do {
             let params = buildParams(cursor: cursor)
             let result = try await apiClient.fetchContentsPaginated(params: params)
 
-            contents.append(contentsOf: result.data)
-            totalCount = result.pagination?.totalCount ?? totalCount
+            // Drop stale results: a newer fetch replaced the list while we awaited.
+            guard fetchId == currentFetchId else { return }
+
+            // De-dup by id: cursor pagination over volatile sort keys can return a
+            // content already on a previous page, which would break ForEach identity.
+            let existingIds = Set(contents.map(\.id))
+            let newItems = result.data.filter { !existingIds.contains($0.id) }
+            contents.append(contentsOf: newItems)
+            totalCount = result.pagination?.totalCount ?? contents.count
             hasMore = result.pagination?.hasMore ?? false
             nextCursor = result.pagination?.nextCursor
         } catch {
             // Silently fail for load more
         }
-        isLoadingMore = false
     }
 
     // MARK: - Filter Actions
 
     func applyFilters() {
+        // Invalidate any in-flight loadMore immediately so a page returning during
+        // the debounce window isn't appended to a list about to be replaced (#1).
+        fetchId = UUID()
         searchTask?.cancel()
         searchTask = Task {
             try? await Task.sleep(for: .milliseconds(300))
@@ -300,14 +322,16 @@ final class BrowseViewModel {
     }
 
     func clearFilters() {
-        searchText = ""
         selectedGenreSlugs = []
         selectedRegionSlugs = []
         selectedType = lockedType == nil ? .all : (lockedType == .movie ? .movie : .series)
         selectedStatus = .all
         sortOption = .updatedAtDesc
-        searchTask?.cancel()
-        searchTask = Task { await fetchContents() }
+        // Set searchText last and route through the single debounced path. This
+        // coalesces with the .searchable onChange (which also fires on this change)
+        // into ONE fetch instead of an immediate fetch racing a debounced one.
+        searchText = ""
+        applyFilters()
     }
 
     func toggleGenre(_ slug: String) {

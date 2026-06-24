@@ -14,9 +14,25 @@ struct HeroSliderView: View {
     let contents: [Content]
 
     @State private var currentIndex = 0
+    @State private var isOnScreen = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.themeManager) private var themeManager
     @Environment(\.horizontalSizeClass) private var hSizeClass
+
+    /// Auto-advance only runs when the slider is actually visible and the app is
+    /// active — avoids burning CPU/battery animating off-screen (#10).
+    private var autoAdvanceActive: Bool {
+        isOnScreen && scenePhase == .active && !reduceMotion && contents.count > 1
+    }
+
+    /// `currentIndex` clamped to the current `contents` bounds. Reading through
+    /// this everywhere prevents an out-of-range subscript crash when `contents`
+    /// shrinks on refresh while a larger `currentIndex` is still retained (#crash).
+    private var safeIndex: Int {
+        guard !contents.isEmpty else { return 0 }
+        return min(max(currentIndex, 0), contents.count - 1)
+    }
 
     var body: some View {
         if contents.isEmpty {
@@ -27,15 +43,15 @@ struct HeroSliderView: View {
                 ZStack {
                     ForEach(Array(contents.enumerated()), id: \.element.id) { index, item in
                         // Only render current ±1 slides to reduce GPU/memory usage
-                        let distance = min(abs(index - currentIndex), contents.count - abs(index - currentIndex))
+                        let distance = min(abs(index - safeIndex), contents.count - abs(index - safeIndex))
                         if distance <= 1 {
                             HeroSlideView(
                                 content: item,
-                                isActive: currentIndex == index,
+                                isActive: safeIndex == index,
                                 reduceMotion: reduceMotion,
                                 reverseZoom: !index.isMultiple(of: 2)
                             )
-                            .opacity(currentIndex == index ? 1 : 0)
+                            .opacity(safeIndex == index ? 1 : 0)
                         }
                     }
                 }
@@ -48,12 +64,22 @@ struct HeroSliderView: View {
                 pageIndicator
                     .padding(.bottom, DesignTokens.Spacing.lg)
             }
-            .task(id: currentIndex) {
-                guard !reduceMotion, contents.count > 1 else { return }
+            .task(id: "\(safeIndex)-\(autoAdvanceActive)") {
+                guard autoAdvanceActive else { return }
                 try? await Task.sleep(for: .seconds(9.2))
                 guard !Task.isCancelled else { return }
                 withAnimation(.easeInOut(duration: 1.2)) {
-                    currentIndex = (currentIndex + 1) % contents.count
+                    currentIndex = (safeIndex + 1) % contents.count
+                }
+            }
+            .onScrollVisibilityChange(threshold: 0.2) { visible in
+                isOnScreen = visible
+            }
+            // Clamp the stored index when the dataset shrinks (e.g. pull-to-refresh
+            // returns fewer hero items) so the page indicator and auto-advance stay valid.
+            .onChange(of: contents.count) { _, newCount in
+                if currentIndex >= newCount {
+                    currentIndex = max(0, newCount - 1)
                 }
             }
             .gesture(
@@ -65,22 +91,22 @@ struct HeroSliderView: View {
 
                         withAnimation(.easeInOut(duration: 1.2)) {
                             if value.translation.width < -50 {
-                                currentIndex = (currentIndex + 1) % contents.count
+                                currentIndex = (safeIndex + 1) % contents.count
                             } else if value.translation.width > 50 {
-                                currentIndex = (currentIndex - 1 + contents.count) % contents.count
+                                currentIndex = (safeIndex - 1 + contents.count) % contents.count
                             }
                         }
                     }
             )
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Nổi bật: \(contents[currentIndex].title), slide \(currentIndex + 1) trên \(contents.count)")
+            .accessibilityLabel("Nổi bật: \(contents[safeIndex].title), slide \(safeIndex + 1) trên \(contents.count)")
             .accessibilityAdjustableAction { direction in
                 withAnimation(.easeInOut(duration: 1.2)) {
                     switch direction {
                     case .increment:
-                        currentIndex = (currentIndex + 1) % contents.count
+                        currentIndex = (safeIndex + 1) % contents.count
                     case .decrement:
-                        currentIndex = (currentIndex - 1 + contents.count) % contents.count
+                        currentIndex = (safeIndex - 1 + contents.count) % contents.count
                     @unknown default:
                         break
                     }
@@ -95,10 +121,10 @@ struct HeroSliderView: View {
         HStack(spacing: 6) {
             ForEach(0..<contents.count, id: \.self) { index in
                 Capsule()
-                    .fill(index == currentIndex ? themeManager.colors.brand : ThemeColor.textPrimary.opacity(0.3))
-                    .frame(width: index == currentIndex ? 28 : 8, height: 6)
-                    .shadow(color: index == currentIndex ? themeManager.colors.brand.opacity(0.6) : .clear, radius: 6)
-                    .animation(reduceMotion ? .none : DesignTokens.Animation.standard, value: currentIndex)
+                    .fill(index == safeIndex ? themeManager.colors.brand : ThemeColor.textPrimary.opacity(0.3))
+                    .frame(width: index == safeIndex ? 28 : 8, height: 6)
+                    .shadow(color: index == safeIndex ? themeManager.colors.brand.opacity(0.6) : .clear, radius: 6)
+                    .animation(reduceMotion ? .none : DesignTokens.Animation.standard, value: safeIndex)
             }
         }
     }

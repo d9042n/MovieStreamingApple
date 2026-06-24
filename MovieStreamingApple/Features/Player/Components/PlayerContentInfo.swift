@@ -411,26 +411,32 @@ struct PlayerContentInfo: View {
     }
 
     @ViewBuilder
+    private func castInitial(_ person: CastMember) -> some View {
+        Text(person.initial)
+            .font(ThemeFont.display(size: 14, weight: .bold))
+            .foregroundStyle(ThemeColor.textMuted)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                LinearGradient(
+                    colors: [themeManager.colors.link.opacity(0.3), themeManager.colors.brand.opacity(0.3)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+    }
+
+    @ViewBuilder
     private func castAvatarContent(_ person: CastMember, tappable: Bool) -> some View {
         VStack(spacing: 4) {
             ZStack(alignment: .bottomTrailing) {
-                AsyncImage(url: person.photoUrl.flatMap { URL(string: $0) }) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    default:
-                        Text(person.initial)
-                            .font(ThemeFont.display(size: 14, weight: .bold))
-                            .foregroundStyle(ThemeColor.textMuted)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(
-                                LinearGradient(
-                                    colors: [themeManager.colors.link.opacity(0.3), themeManager.colors.brand.opacity(0.3)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    }
+                // Use the project's caching image view instead of stock AsyncImage
+                // so cast photos aren't refetched/redecoded on every appearance.
+                CachedAsyncImage(url: person.photoUrl.flatMap { URL(string: $0) }) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    castInitial(person)
+                } failure: {
+                    castInitial(person)
                 }
                 .frame(width: 50, height: 50)
                 .clipShape(Circle())

@@ -247,6 +247,15 @@ final class SubtitleSettings {
         }
     }
 
+    /// Cancel any pending debounced save and write immediately, so a final change
+    /// isn't lost if the app backgrounds / terminates within the debounce window.
+    func flush() {
+        guard saveTask != nil else { return }
+        saveTask?.cancel()
+        saveTask = nil
+        performSave()
+    }
+
     private func performSave() {
         let data: [String: Any] = [
             "fontSize": fontSize,

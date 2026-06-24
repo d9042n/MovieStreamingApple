@@ -55,10 +55,16 @@ final class PersonDetailViewModel {
     }
 
     var departmentLabel: String {
-        guard let filmography = person?.filmography else { return "" }
-        let depts = Array(filmography.keys)
-        guard let first = depts.first else { return "" }
-        return Self.getDepartmentLabel(first)
+        guard let filmography = person?.filmography, !filmography.isEmpty else { return "" }
+        // Deterministic primary department: most credits (tie-break alphabetically).
+        // Dictionary key order varies between launches, so `keys.first` could show a
+        // different role for the same person each time.
+        let primary = filmography.sorted { lhs, rhs in
+            if lhs.value.count != rhs.value.count { return lhs.value.count > rhs.value.count }
+            return lhs.key < rhs.key
+        }.first?.key
+        guard let primary else { return "" }
+        return Self.getDepartmentLabel(primary)
     }
 
     /// Cached age calculation using shared DateFormatting (#34).

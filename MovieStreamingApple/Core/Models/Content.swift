@@ -111,6 +111,14 @@ nonisolated struct Content: Codable, Identifiable, Hashable, Sendable {
 nonisolated enum ContentType: String, Codable, Sendable {
     case movie
     case series
+
+    /// Decode unknown values to `.movie` instead of throwing — an unexpected
+    /// `type` string must not abort decoding of the whole Content (which, inside
+    /// a list, would otherwise drop the item).
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = ContentType(rawValue: raw) ?? .movie
+    }
 }
 
 // MARK: - Genre Reference (can be string or object in API)

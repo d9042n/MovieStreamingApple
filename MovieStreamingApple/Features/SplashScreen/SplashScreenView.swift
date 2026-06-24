@@ -79,6 +79,9 @@ struct SplashScreenView: View {
         }
         .ignoresSafeArea()
         .opacity(contentOpacity)
+        // Once faded out (but still mounted while data prefetch finishes), let taps
+        // pass through to the live ContentView underneath instead of being swallowed.
+        .allowsHitTesting(contentOpacity > 0.01)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .task {
@@ -108,12 +111,15 @@ struct SplashScreenView: View {
         self.player = avPlayer
         phase = .playing
 
-        // Run video playback and data fetch concurrently using async let
+        // Run video playback, the pre-end crossfade, and data fetch concurrently.
+        // Keeping the fade in the structured async-let tree (instead of a detached
+        // Task) means cancelling the view's `.task` on dismiss also cancels the fade,
+        // so it can't fire an animation/volume write after teardown.
         async let videoTask: Void = runVideoPlayback(player: avPlayer)
+        async let fadeTask: Void = scheduleFadeOutBeforeEnd(player: avPlayer)
         async let dataTask: Void = runDataPrefetch()
 
-        // Wait for both to complete
-        _ = await (videoTask, dataTask)
+        _ = await (videoTask, fadeTask, dataTask)
     }
 
     // MARK: - Orientation-Aware Video Selection
@@ -122,8 +128,16 @@ struct SplashScreenView: View {
     /// - Portrait (9:16): `SplashScreenVertical`   — iPhone, iPad portrait
     /// - Landscape (16:9): `SplashScreenHorizontal` — iPad landscape
     private func selectVideoForOrientation() -> String {
-        let screenBounds = UIScreen.main.bounds
-        let isLandscape = screenBounds.width > screenBounds.height
+        // Use the active window scene's window bounds instead of the deprecated
+        // UIScreen.main, which on iOS 26 reflects only the global primary screen.
+        let isLandscape: Bool
+        if let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first,
+           let windowSize = windowScene.windows.first?.bounds.size {
+            isLandscape = windowSize.width > windowSize.height
+        } else {
+            isLandscape = false   // default to portrait
+        }
 
         if isLandscape {
             logger.info("Landscape detected — using SplashScreenHorizontal")
@@ -143,15 +157,11 @@ struct SplashScreenView: View {
             object: player.currentItem
         )
 
-        // Start playback and fade audio in
+        // Start playback and fade audio in. The pre-end crossfade is scheduled as a
+        // sibling structured task in startSplashSequence (not here) so it shares this
+        // view's `.task` lifecycle.
         player.play()
         fadeVolume(player: player, from: 0.0, to: 1.0, duration: audioFadeInDuration)
-
-        // Fire-and-forget: schedule crossfade to begin `audioFadeOutDuration`
-        // seconds BEFORE the video ends, so it completes on the last frame.
-        Task { @MainActor in
-            await scheduleFadeOutBeforeEnd(player: player)
-        }
 
         // Await end-of-playback — by the time this fires, the crossfade
         // should already be complete (or nearly so).
@@ -176,6 +186,9 @@ struct SplashScreenView: View {
             guard duration.isValid, !duration.isIndefinite else { return }
 
             let totalSeconds = CMTimeGetSeconds(duration)
+            // Too short to fade in AND out without overlap — skip the timed pre-end
+            // crossfade (dismiss handles teardown). Avoids sleeping past the end.
+            guard totalSeconds > audioFadeInDuration + audioFadeOutDuration else { return }
             // Don't start fade before the fade-in completes
             let fadeStart = max(audioFadeInDuration, totalSeconds - audioFadeOutDuration)
 

@@ -90,15 +90,26 @@ enum DateFormatting {
     }
 
     /// Calculate age from "yyyy-MM-dd" birthDate.
+    /// Returns nil only when the date can't be parsed or is in the future — a valid
+    /// age of 0 (infant) is a real value, not a parse failure.
     static func calculateAge(from birthDateString: String) -> Int? {
         guard let born = parseDate(birthDateString) else { return nil }
-        let years = Calendar.current.dateComponents([.year], from: born, to: Date()).year ?? 0
-        return years > 0 ? years : nil
+        guard let years = Calendar.current.dateComponents([.year], from: born, to: Date()).year,
+              years >= 0 else { return nil }
+        return years
     }
 
-    /// Extract year from a date string prefix (first 4 chars).
+    /// Extract the 4-digit year from a date string. Tries a real parse first, then
+    /// falls back to the first run of 4 consecutive digits, so it works for both
+    /// ISO ("2024-03-15") and localized ("15/03/2024") inputs. Returns 0 if unknown.
     static func extractYear(_ dateString: String?) -> Int {
-        guard let dateString else { return 0 }
-        return Int(String(dateString.prefix(4))) ?? 0
+        guard let dateString, !dateString.isEmpty else { return 0 }
+        if let date = parseDate(dateString) {
+            return Calendar.current.component(.year, from: date)
+        }
+        if let match = dateString.range(of: #"\d{4}"#, options: .regularExpression) {
+            return Int(dateString[match]) ?? 0
+        }
+        return 0
     }
 }

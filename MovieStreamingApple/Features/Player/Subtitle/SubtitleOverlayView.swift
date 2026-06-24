@@ -26,14 +26,19 @@ struct SubtitleOverlayView: View {
     var body: some View {
         GeometryReader { geometry in
             if let cue {
-                let bottomInset = geometry.size.height * CGFloat(settings.verticalPosition / 100)
+                // Guard against NaN / non-positive height during transient layout
+                // passes (rotation, sheet present/dismiss, AVPlayerLayer resize).
+                let rawHeight = geometry.size.height
+                let safeHeight = (rawHeight.isFinite && rawHeight > 0) ? rawHeight : 0
+                let safeWidth = (geometry.size.width.isFinite && geometry.size.width > 0) ? geometry.size.width : 0
+                let bottomInset = safeHeight * CGFloat(settings.verticalPosition / 100)
 
                 VStack {
                     Spacer()
 
-                    subtitleText(cue.text, maxWidth: geometry.size.width)
+                    subtitleText(cue.text, maxWidth: safeWidth)
                         .padding(.bottom, bottomInset)
-                        .offset(y: isHUDVisible ? -hudOffset(for: geometry.size.height) : 0)
+                        .offset(y: isHUDVisible ? -hudOffset(for: safeHeight) : 0)
                 }
                 .frame(maxWidth: .infinity)
                 .animation(.easeInOut(duration: 0.25), value: isHUDVisible)

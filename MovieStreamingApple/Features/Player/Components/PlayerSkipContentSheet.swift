@@ -102,7 +102,7 @@ struct PlayerSkipContentSheet: View {
                 .font(ThemeFont.body(size: 15))
                 .focused(isFocused)
                 .onChange(of: customText.wrappedValue) { _, newValue in
-                    applyCustomValue(newValue, onDurationChange: onDurationChange)
+                    applyCustomValue(newValue, into: customText, onDurationChange: onDurationChange)
                 }
 
                 Text("giây")
@@ -154,16 +154,29 @@ struct PlayerSkipContentSheet: View {
 
     // MARK: - Helpers
 
-    /// Parse custom text input and apply if valid.
-    private func applyCustomValue(_ text: String, onDurationChange: (TimeInterval) -> Void) {
+    /// Parse custom text input, apply it, and write the normalized value back into
+    /// the field so the text, the preset checkmark, and the saved duration never
+    /// diverge (e.g. "500" → "300", "30.5" → "30", non-numeric → cleared).
+    private func applyCustomValue(_ text: String, into binding: Binding<String>, onDurationChange: (TimeInterval) -> Void) {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty {
             onDurationChange(0)
             return
         }
-        guard let seconds = Double(trimmed) else { return }
-        let clamped = max(0, min(seconds, SkipContentSettings.maxCustomDuration))
-        onDurationChange(clamped)
+        guard let seconds = Double(trimmed) else {
+            // Non-numeric (paste/locale): clear rather than leave a stale value.
+            if binding.wrappedValue != "" { binding.wrappedValue = "" }
+            onDurationChange(0)
+            return
+        }
+        // Skip durations are whole seconds — store the SAME integer value we display
+        // so a decimal input ("30.5") doesn't save 30.5 while the field shows "30".
+        let clampedInt = Int(max(0, min(seconds, SkipContentSettings.maxCustomDuration)))
+        onDurationChange(Double(clampedInt))
+        let normalized = clampedInt > 0 ? "\(clampedInt)" : ""
+        if normalized != text {
+            binding.wrappedValue = normalized
+        }
     }
 
     /// Sync custom text fields with current settings values.

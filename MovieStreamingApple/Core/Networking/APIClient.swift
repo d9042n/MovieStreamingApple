@@ -8,12 +8,66 @@
 
 import Foundation
 
+// MARK: - Lossy Decoding Helpers
+
+/// Decodes a value but never throws — a malformed element becomes `nil` instead
+/// of aborting the whole array decode.
+nonisolated struct FailableDecodable<Wrapped: Decodable>: Decodable, Sendable where Wrapped: Sendable {
+    let value: Wrapped?
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        value = try? container.decode(Wrapped.self)
+    }
+}
+
+extension CharacterSet {
+    /// Allowed characters for a URL query VALUE — `.urlQueryAllowed` minus the
+    /// sub-delimiters that carry reserved meaning in a query string (`& = + ? #`),
+    /// so a search term containing them is escaped instead of corrupting the URL.
+    /// `nonisolated` so it's usable from the nonisolated APIClient under the
+    /// project's default-MainActor isolation.
+    nonisolated static let urlQueryValueAllowed: CharacterSet = {
+        var set = CharacterSet.urlQueryAllowed
+        set.remove(charactersIn: "&=+?#")
+        return set
+    }()
+}
+
+extension KeyedDecodingContainer {
+    /// Decode an array element-by-element, skipping any element that fails to
+    /// decode. Returns `[]` when the key is absent or null. This means one bad
+    /// row from the backend can no longer nuke an entire collection.
+    /// `nonisolated` so it's callable from the `nonisolated` Codable inits
+    /// (APIListResponse, ContentCollection) under default-MainActor isolation.
+    nonisolated func decodeLossyArray<T: Decodable & Sendable>(_ type: T.Type, forKey key: Key) throws -> [T] {
+        guard contains(key), try decodeNil(forKey: key) == false else { return [] }
+        var unkeyed = try nestedUnkeyedContainer(forKey: key)
+        var items: [T] = []
+        if let count = unkeyed.count { items.reserveCapacity(count) }
+        while !unkeyed.isAtEnd {
+            let wrapped = try unkeyed.decode(FailableDecodable<T>.self)
+            if let value = wrapped.value { items.append(value) }
+        }
+        return items
+    }
+}
+
 // MARK: - API Response Wrappers
 
 /// Generic paginated response from the API.
 nonisolated struct APIListResponse<T: Codable & Sendable>: Codable, Sendable {
     let data: [T]?
     let meta: APIMeta?
+
+    enum CodingKeys: String, CodingKey { case data, meta }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.meta = try container.decodeIfPresent(APIMeta.self, forKey: .meta)
+        // Lossy: a single malformed element is skipped rather than failing the
+        // entire response (e.g. one bad collection no longer drops all rails).
+        self.data = (try? container.decodeLossyArray(T.self, forKey: .data)) ?? []
+    }
 }
 
 nonisolated struct APIMeta: Codable, Sendable {
@@ -88,141 +142,107 @@ nonisolated final class APIClient: APIClientProtocol, Sendable {
 
     init(
         baseURL: String = "https://ms-api-gateway.d9042n.online/api/v1",
-        session: URLSession = .shared
+        session: URLSession? = nil
     ) {
         self.baseURL = baseURL
-        self.session = session
+        if let session {
+            self.session = session
+        } else {
+            // Default session with explicit timeouts so requests fail fast
+            // instead of hanging on the default 60s with no feedback (#6).
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 30
+            config.timeoutIntervalForResource = 60
+            config.waitsForConnectivity = false
+            self.session = URLSession(configuration: config)
+        }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         self.decoder = decoder
+    }
+
+    // MARK: - Request Helpers
+
+    /// Unified GET + validate + decode. Centralizes error handling so every
+    /// endpoint reports HTTP status codes, wrapped decode errors, and mapped
+    /// connectivity/timeout failures consistently (#5/#6).
+    private func get<T: Decodable & Sendable>(_ urlString: String, as type: T.Type) async throws -> T {
+        guard let url = URL(string: urlString) else {
+            throw NetworkError.invalidURL(urlString)
+        }
+        do {
+            let (data, response) = try await session.data(from: url)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw NetworkError.invalidResponse
+            }
+            guard (200...299).contains(httpResponse.statusCode) else {
+                throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
+            }
+            do {
+                return try decoder.decode(T.self, from: data)
+            } catch {
+                throw NetworkError.decodingError(error)
+            }
+        } catch let error as NetworkError {
+            throw error
+        } catch let urlError as URLError {
+            switch urlError.code {
+            case .timedOut:
+                throw NetworkError.timeout
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                throw NetworkError.noConnection
+            default:
+                throw urlError
+            }
+        }
     }
 
     // MARK: - Content Fetching
 
     /// Fetch contents with query string (mirrors `fetchContents` in useHomeContents.ts).
     func fetchContents(params: String) async throws -> (data: [Content], totalCount: Int) {
-        let urlString = "\(baseURL)/contents?\(params)"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NetworkError.invalidResponse
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
-        }
-
-        do {
-            let result = try decoder.decode(APIListResponse<Content>.self, from: data)
-            return (
-                data: result.data ?? [],
-                totalCount: result.meta?.pagination?.totalCount ?? 0
-            )
-        } catch {
-            throw NetworkError.decodingError(error)
-        }
+        let result = try await get("\(baseURL)/contents?\(params)", as: APIListResponse<Content>.self)
+        return (
+            data: result.data ?? [],
+            totalCount: result.meta?.pagination?.totalCount ?? 0
+        )
     }
 
     // MARK: - Genres
 
     func fetchGenres() async throws -> [Genre] {
-        let urlString = "\(baseURL)/genres"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        let result = try decoder.decode(APIListResponse<Genre>.self, from: data)
+        let result = try await get("\(baseURL)/genres", as: APIListResponse<Genre>.self)
         return result.data ?? []
     }
 
     // MARK: - Regions
 
     func fetchRegions() async throws -> [Region] {
-        let urlString = "\(baseURL)/regions"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        let result = try decoder.decode(APIListResponse<Region>.self, from: data)
+        let result = try await get("\(baseURL)/regions", as: APIListResponse<Region>.self)
         return result.data ?? []
     }
 
     // MARK: - Contents Paginated (Browse)
 
     func fetchContentsPaginated(params: String) async throws -> (data: [Content], pagination: APIPagination?) {
-        let urlString = "\(baseURL)/contents?\(params)"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        do {
-            let result = try decoder.decode(APIListResponse<Content>.self, from: data)
-            return (data: result.data ?? [], pagination: result.meta?.pagination)
-        } catch {
-            throw NetworkError.decodingError(error)
-        }
+        let result = try await get("\(baseURL)/contents?\(params)", as: APIListResponse<Content>.self)
+        return (data: result.data ?? [], pagination: result.meta?.pagination)
     }
 
     // MARK: - Collections
 
     func fetchCollections() async throws -> [ContentCollection] {
-        let urlString = "\(baseURL)/collections"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        let result = try decoder.decode(APIListResponse<ContentCollection>.self, from: data)
+        let result = try await get("\(baseURL)/collections", as: APIListResponse<ContentCollection>.self)
         return result.data ?? []
     }
 
     // MARK: - Blog Posts
 
     func fetchBlogPosts() async throws -> [BlogPost] {
-        let urlString = "\(baseURL)/blog/posts?page_size=4&sort_by=published_at&sort_order=desc"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        let result = try decoder.decode(APIListResponse<BlogPost>.self, from: data)
+        let result = try await get(
+            "\(baseURL)/blog/posts?page_size=4&sort_by=published_at&sort_order=desc",
+            as: APIListResponse<BlogPost>.self
+        )
         return result.data ?? []
     }
 
@@ -231,67 +251,27 @@ nonisolated final class APIClient: APIClientProtocol, Sendable {
     /// Fetch a single content detail by slug.
     func fetchContentDetail(slug: String, type: ContentType) async throws -> Content {
         let typePrefix = type == .series ? "tv" : "movie"
-        let urlString = "\(baseURL)/\(typePrefix)/\(slug)"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
+        let result = try await get("\(baseURL)/\(typePrefix)/\(slug)", as: APIDataResponse<Content>.self)
+        guard let content = result.data else {
+            throw NetworkError.invalidResponse
         }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.httpError(
-                statusCode: (response as? HTTPURLResponse)?.statusCode ?? -1,
-                data: data
-            )
-        }
-
-        do {
-            let result = try decoder.decode(APIDataResponse<Content>.self, from: data)
-            guard let content = result.data else {
-                throw NetworkError.invalidResponse
-            }
-            return content
-        } catch {
-            throw NetworkError.decodingError(error)
-        }
+        return content
     }
 
     // MARK: - Seasons
 
     func fetchSeasons(slug: String) async throws -> [Season] {
-        let urlString = "\(baseURL)/tv/\(slug)/seasons"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        let result = try decoder.decode(APIListResponse<Season>.self, from: data)
+        let result = try await get("\(baseURL)/tv/\(slug)/seasons", as: APIListResponse<Season>.self)
         return result.data ?? []
     }
 
     // MARK: - Episodes
 
     func fetchEpisodes(slug: String, seasonNumber: Int) async throws -> [Episode] {
-        let urlString = "\(baseURL)/tv/\(slug)/episodes?season_number=\(seasonNumber)&page_size=100"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        let result = try decoder.decode(APIListResponse<Episode>.self, from: data)
+        let result = try await get(
+            "\(baseURL)/tv/\(slug)/episodes?season_number=\(seasonNumber)&page_size=100",
+            as: APIListResponse<Episode>.self
+        )
         return result.data ?? []
     }
 
@@ -299,19 +279,7 @@ nonisolated final class APIClient: APIClientProtocol, Sendable {
 
     func fetchCredits(slug: String, type: ContentType) async throws -> CreditsResponse {
         let typePrefix = type == .series ? "tv" : "movie"
-        let urlString = "\(baseURL)/\(typePrefix)/\(slug)/credits"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        let result = try decoder.decode(APIDataResponse<CreditsResponse>.self, from: data)
+        let result = try await get("\(baseURL)/\(typePrefix)/\(slug)/credits", as: APIDataResponse<CreditsResponse>.self)
         return result.data ?? CreditsResponse(cast: [], crew: nil)
     }
 
@@ -319,19 +287,7 @@ nonisolated final class APIClient: APIClientProtocol, Sendable {
 
     func fetchRelatedContents(slug: String, type: ContentType) async throws -> [Content] {
         let typePrefix = type == .series ? "tv" : "movie"
-        let urlString = "\(baseURL)/\(typePrefix)/\(slug)/related"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        let result = try decoder.decode(APIListResponse<Content>.self, from: data)
+        let result = try await get("\(baseURL)/\(typePrefix)/\(slug)/related", as: APIListResponse<Content>.self)
         return result.data ?? []
     }
 
@@ -339,19 +295,7 @@ nonisolated final class APIClient: APIClientProtocol, Sendable {
 
     func fetchMedia(slug: String, type: ContentType) async throws -> [MediaItem] {
         let typePrefix = type == .series ? "tv" : "movie"
-        let urlString = "\(baseURL)/\(typePrefix)/\(slug)/media"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        let result = try decoder.decode(APIListResponse<MediaItem>.self, from: data)
+        let result = try await get("\(baseURL)/\(typePrefix)/\(slug)/media", as: APIListResponse<MediaItem>.self)
         return (result.data ?? []).sorted { $0.sortOrder < $1.sortOrder }
     }
 
@@ -360,22 +304,7 @@ nonisolated final class APIClient: APIClientProtocol, Sendable {
     /// Fetch content detail including streaming links for movies.
     func fetchWatchDetail(slug: String, type: ContentType) async throws -> WatchDetailResponse {
         let typePrefix = type == .series ? "tv" : "movie"
-        let urlString = "\(baseURL)/\(typePrefix)/\(slug)"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.httpError(
-                statusCode: (response as? HTTPURLResponse)?.statusCode ?? -1,
-                data: data
-            )
-        }
-
-        let result = try decoder.decode(APIDataResponse<WatchDetailResponse>.self, from: data)
+        let result = try await get("\(baseURL)/\(typePrefix)/\(slug)", as: APIDataResponse<WatchDetailResponse>.self)
         guard let detail = result.data else {
             throw NetworkError.invalidResponse
         }
@@ -386,19 +315,10 @@ nonisolated final class APIClient: APIClientProtocol, Sendable {
 
     /// Fetch episodes for a season — episodes include servers and subtitles for playback.
     func fetchSeriesEpisodes(slug: String, seasonNumber: Int) async throws -> [Episode] {
-        let urlString = "\(baseURL)/tv/\(slug)/episodes?season_number=\(seasonNumber)&page_size=100"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        let result = try decoder.decode(APIListResponse<Episode>.self, from: data)
+        let result = try await get(
+            "\(baseURL)/tv/\(slug)/episodes?season_number=\(seasonNumber)&page_size=100",
+            as: APIListResponse<Episode>.self
+        )
         return (result.data ?? []).sorted { ($0.episodeNumber ?? 0) < ($1.episodeNumber ?? 0) }
     }
 
@@ -428,27 +348,16 @@ nonisolated final class APIClient: APIClientProtocol, Sendable {
     ) async throws -> (data: [PersonListItem], pagination: APIPagination?) {
         var urlString = "\(baseURL)/people?page_size=\(pageSize)&sort_by=\(sortBy)&sort_order=\(sortOrder)"
         if !search.isEmpty {
-            urlString += "&search=\(search.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? search)"
+            urlString += "&search=\(search.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? search)"
         }
         if !gender.isEmpty {
-            urlString += "&gender=\(gender)"
+            urlString += "&gender=\(gender.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? gender)"
         }
         if let cursor, !cursor.isEmpty {
-            urlString += "&cursor=\(cursor.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cursor)"
+            urlString += "&cursor=\(cursor.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? cursor)"
         }
 
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.invalidResponse
-        }
-
-        let result = try decoder.decode(APIListResponse<PersonListItem>.self, from: data)
+        let result = try await get(urlString, as: APIListResponse<PersonListItem>.self)
         return (data: result.data ?? [], pagination: result.meta?.pagination)
     }
 
@@ -456,22 +365,7 @@ nonisolated final class APIClient: APIClientProtocol, Sendable {
 
     func fetchPersonDetail(slug: String) async throws -> PersonDetail {
         let encoded = slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? slug
-        let urlString = "\(baseURL)/people/\(encoded)"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.httpError(
-                statusCode: (response as? HTTPURLResponse)?.statusCode ?? -1,
-                data: data
-            )
-        }
-
-        let result = try decoder.decode(APIDataResponse<PersonDetail>.self, from: data)
+        let result = try await get("\(baseURL)/people/\(encoded)", as: APIDataResponse<PersonDetail>.self)
         guard let person = result.data else {
             throw NetworkError.invalidResponse
         }

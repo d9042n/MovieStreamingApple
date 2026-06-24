@@ -41,4 +41,19 @@ nonisolated struct SubtitleTrack: Codable, Identifiable, Hashable, Sendable {
     let label: String
     let fileUrl: String
     let isDefault: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, languageCode, label, fileUrl, isDefault
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Tolerate omitted fields (e.g. a missing `label` or `is_default`) so one
+        // sparse subtitle row can't fail the entire episode/watch-detail decode.
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? UUID().uuidString
+        languageCode = (try? c.decodeIfPresent(String.self, forKey: .languageCode)) ?? ""
+        label = (try? c.decodeIfPresent(String.self, forKey: .label)) ?? ""
+        fileUrl = (try? c.decodeIfPresent(String.self, forKey: .fileUrl)) ?? ""
+        isDefault = (try? c.decodeIfPresent(Bool.self, forKey: .isDefault)) ?? false
+    }
 }

@@ -9,13 +9,11 @@
 import SwiftUI
 
 struct PlayerActionBar: View {
-    let content: Content?
-    let nextEpisode: Episode?
     let isSeries: Bool
-    let bookmarkCount: Int?
+    /// Whether a following episode exists (including the first episode of the
+    /// next season) — drives the "Tập tiếp theo" button.
+    let hasNextEpisode: Bool
 
-    var onFavorite: (() -> Void)?
-    var onBookmark: (() -> Void)?
     var onShare: (() -> Void)?
     var onNextEpisode: (() -> Void)?
 
@@ -48,7 +46,7 @@ struct PlayerActionBar: View {
             }
 
             // Next episode (series only)
-            if isSeries, nextEpisode != nil {
+            if isSeries, hasNextEpisode {
                 Spacer()
 
                 Button {

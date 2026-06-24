@@ -27,6 +27,7 @@ struct PlayerPageView: View {
     @State private var isEpisodeListVisible = false
     @State private var showSettings = false
     @State private var showTrailer = false
+    @State private var wasPlayingBeforeTrailer = false
     /// Portrait fullscreen state for vertical content (short drama)
     @State private var isVerticalFullScreen = false
     /// Manual fullscreen state (solves iPad restricted programmatic layout updates)
@@ -37,7 +38,8 @@ struct PlayerPageView: View {
     @Environment(WatchHistoryManager.self) private var watchHistory
     @Environment(AppRouter.self) private var router
     @Environment(\.horizontalSizeClass) private var hSizeClass
-    
+    @Environment(\.scenePhase) private var scenePhase
+
     @AppStorage("useMathTransformFullscreen") private var useMathTransformFullscreen = false
 
     var body: some View {
@@ -88,11 +90,20 @@ struct PlayerPageView: View {
         .onChange(of: viewModel.isVerticalContent) { _, isVertical in
             if isVertical { lockPortrait() }
         }
-        .onChange(of: viewModel.videoSource) { _, newSource in
-            loadPlayerSource(url: newSource)
+        .onChange(of: viewModel.sourceVersion) { _, _ in
+            // #52: Reload on source IDENTITY change (server / episode / season),
+            // NOT on the URL string — two mirror servers can share the same URL
+            // and must still reload, otherwise manual switch + failover silently no-op.
+            loadPlayerSource(url: viewModel.videoSource)
         }
-        // #52: Removed duplicate onChange(of: activeServerIndex) — videoSource is
-        // derived from activeServerIndex, so the onChange above already handles it.
+        .onChange(of: scenePhase) { _, phase in
+            // Backgrounding/interruption: persist progress + flush pending subtitle
+            // settings immediately so nothing is lost if the app is terminated.
+            if phase != .active {
+                playerVM.saveResumeProgress()
+                playerVM.subtitleSettings.flush()
+            }
+        }
         .onAppear {
             router.isPlayerActive = true
             // iPhone: allow landscape while player is active
@@ -140,7 +151,13 @@ struct PlayerPageView: View {
         }
         .onChange(of: showTrailer) { _, isShowing in
             if isShowing {
+                wasPlayingBeforeTrailer = playerVM.isPlaying
                 playerVM.pause()
+            } else if wasPlayingBeforeTrailer {
+                // Resume the main video after the trailer sheet is dismissed,
+                // but only if it was actually playing before.
+                wasPlayingBeforeTrailer = false
+                playerVM.play()
             }
         }
         // Value-based navigation destinations for sub-components
@@ -232,10 +249,8 @@ struct PlayerPageView: View {
 
                     // === Section: Action bar ===
                     PlayerActionBar(
-                        content: viewModel.content,
-                        nextEpisode: viewModel.nextEpisode,
                         isSeries: viewModel.isSeries,
-                        bookmarkCount: viewModel.content?.stats?.bookmarkCount,
+                        hasNextEpisode: viewModel.hasNextEpisode,
                         onShare: { shareContent() },
                         onNextEpisode: { goToNextEpisode() }
                     )
@@ -527,10 +542,8 @@ struct PlayerPageView: View {
 
                     // === Section: Action bar ===
                     PlayerActionBar(
-                        content: viewModel.content,
-                        nextEpisode: viewModel.nextEpisode,
                         isSeries: viewModel.isSeries,
-                        bookmarkCount: viewModel.content?.stats?.bookmarkCount,
+                        hasNextEpisode: viewModel.hasNextEpisode,
                         onShare: { shareContent() },
                         onNextEpisode: { goToNextEpisode() }
                     )
@@ -637,8 +650,8 @@ struct PlayerPageView: View {
             viewModel: playerVM,
             title: viewModel.displayTitle,
             subtitle: viewModel.content?.originalTitle,
-            hasPrevious: viewModel.previousEpisode != nil,
-            hasNext: viewModel.nextEpisode != nil,
+            hasPrevious: viewModel.hasPreviousEpisode,
+            hasNext: viewModel.hasNextEpisode,
             isSeries: viewModel.isSeries,
             isEpisodeListVisible: isEpisodeListVisible,
             isVerticalContent: viewModel.isVerticalContent,
@@ -675,7 +688,7 @@ struct PlayerPageView: View {
         .onAppear {
             // Setup auto-play next callback.
             playerVM.onPlaybackFinished = { [viewModel] in
-                if viewModel.isSeries, viewModel.nextEpisode != nil {
+                if viewModel.isSeries, viewModel.hasNextEpisode {
                     goToNextEpisode()
                 }
             }
@@ -877,19 +890,39 @@ struct PlayerPageView: View {
 
     private func loadPlayerSource(url: String) {
         guard !url.isEmpty else { return }
-        
-        // Look up saved resume position from unified WatchHistoryManager
-        let entry = watchHistory.entries.first(where: { $0.slug == slug })
+
         let targetEpisodeId = viewModel.currentEpisode?.id ?? episodeId
+
+        // Same content already loaded and only the stream URL changed (user
+        // switched server, or a reload): keep the LIVE playback position and
+        // resume seamlessly instead of restarting from the older saved bookmark.
+        if playerVM.movieId == slug,
+           playerVM.episodeId == targetEpisodeId,
+           playerVM.currentTime > 1 {
+            playerVM.loadSource(
+                url: url,
+                subtitles: viewModel.subtitles,
+                poster: viewModel.posterUrl,
+                autoPlay: true,
+                movieId: slug,
+                episodeId: targetEpisodeId,
+                resumePosition: playerVM.currentTime,
+                autoResume: true
+            )
+            return
+        }
+
+        // Fresh load — resume from the saved watch-history bookmark (same episode only).
+        let entry = watchHistory.entries.first(where: { $0.slug == slug })
         let isSameEpisode = entry?.currentEpisodeId == targetEpisodeId
-        
+
         let resumePos: TimeInterval?
         if let entry = entry, isSameEpisode, !entry.isFinished {
             resumePos = entry.resumePositionSeconds
         } else {
             resumePos = nil
         }
-        
+
         playerVM.loadSource(
             url: url,
             subtitles: viewModel.subtitles,
@@ -956,11 +989,11 @@ struct PlayerPageView: View {
     // MARK: - Episode Navigation
 
     private func goToNextEpisode() {
-        viewModel.goToNextEpisode()
+        Task { await viewModel.goToNextEpisode(slug: slug) }
     }
 
     private func goToPreviousEpisode() {
-        viewModel.goToPreviousEpisode()
+        Task { await viewModel.goToPreviousEpisode(slug: slug) }
     }
 
     // MARK: - Share
@@ -1000,21 +1033,47 @@ struct PlayerPageView: View {
         // Only save if we actually started watching (progress > 0)
         guard playerVM.currentTime > 0 else { return }
 
-        let progress: Double
-        if playerVM.duration > 0 {
-            progress = playerVM.currentTime / playerVM.duration
-        } else {
-            progress = 0
+        var progress: Double = playerVM.duration > 0 ? playerVM.currentTime / playerVM.duration : 0
+        var resumePosition = playerVM.currentTime
+        var seasonNumber = viewModel.activeSeason?.seasonNumber
+        var episodeNumber = viewModel.currentEpisode?.episodeNumber
+        var episodeId = viewModel.currentEpisode?.id
+
+        // Series: when the current episode is finished, advance the bookmark to the
+        // next episode (reset position) so the hub's "Xem Tiếp" opens the next one
+        // instead of replaying the finished one.
+        if viewModel.isSeries, progress >= 0.95 {
+            if let next = viewModel.nextEpisode {
+                progress = 0
+                resumePosition = 0
+                seasonNumber = next.seasonNumber ?? seasonNumber
+                episodeNumber = next.episodeNumber
+                episodeId = next.id
+            } else if let nextSeason = viewModel.nextSeason, let nextSeasonNum = nextSeason.seasonNumber {
+                // Finished the season's last episode but another season follows: roll
+                // the bookmark to that season so "Xem Tiếp" advances. We don't know the
+                // next season's first-episode id/number at save time, so leave BOTH nil
+                // and let the player resolve the season's first episode — exactly like
+                // the in-player cross-season auto-advance (selectEpisode → seasonEpisodes.first).
+                // (Hardcoding episodeNumber=1 was wrong: a season may start at 0 / have gaps.)
+                progress = 0
+                resumePosition = 0
+                seasonNumber = nextSeasonNum
+                episodeNumber = nil
+                episodeId = nil
+            }
+            // else: truly the last episode of the last season — leave it finished so
+            // the series moves to "Recently Viewed".
         }
 
         watchHistory.addOrUpdate(
             slug: content.effectiveSlug,
             contentType: contentType,
             progress: progress,
-            resumePosition: playerVM.currentTime,
-            seasonNumber: viewModel.activeSeason?.seasonNumber,
-            episodeNumber: viewModel.currentEpisode?.episodeNumber,
-            episodeId: viewModel.currentEpisode?.id
+            resumePosition: resumePosition,
+            seasonNumber: seasonNumber,
+            episodeNumber: episodeNumber,
+            episodeId: episodeId
         )
     }
 }

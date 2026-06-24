@@ -158,7 +158,7 @@ struct DetailEpisodesView: View {
     private func episodeCard(_ ep: Episode) -> some View {
         NavigationLink(
             value: PlayerDestination(
-                slug: viewModel.content?.slug ?? "",
+                slug: viewModel.content?.effectiveSlug ?? "",
                 type: .series,
                 seasonNumber: ep.seasonNumber,
                 episodeNumber: ep.episodeNumber
@@ -251,7 +251,9 @@ struct DetailEpisodesView: View {
     @ViewBuilder
     private var specialEpisodesSection: some View {
         let isExpanded = viewModel.expandedSeason == -1
-        let specials = isExpanded ? (viewModel.episodesBySeasonMap[0] ?? []) + viewModel.specialEpisodes : viewModel.specialEpisodes
+        // specialEpisodes ALREADY includes season-0 episodes — don't prepend them
+        // again or each season-0 episode is counted/rendered twice (duplicate ids).
+        let specials = viewModel.specialEpisodes
 
         VStack(spacing: 0) {
             Button {
@@ -378,9 +380,12 @@ struct DetailEpisodesView: View {
                 Button {
                     viewModel.episodeLoadError = nil
                     if let season = viewModel.expandedSeason {
+                        // Specials use -1 in the UI but season 0 in the API; map it,
+                        // and use effectiveSlug so retry works when slug is nil.
+                        let apiSeason = season == -1 ? 0 : season
                         Task { await viewModel.loadEpisodes(
-                            slug: viewModel.content?.slug ?? "",
-                            seasonNumber: season
+                            slug: viewModel.content?.effectiveSlug ?? "",
+                            seasonNumber: apiSeason
                         )}
                     }
                 } label: {

@@ -225,6 +225,9 @@ final class ContentDetailViewModel {
     func loadEpisodes(slug: String, seasonNumber: Int) async {
         // Guard: skip invalid season numbers (#7)
         guard seasonNumber >= 0 else { return }
+        // Clear the shared error up front (incl. the cache-hit path below) so a
+        // previously-failed season doesn't show its error on a healthy cached one.
+        episodeLoadError = nil
         // Skip if already loaded
         guard episodesBySeasonMap[seasonNumber] == nil else { return }
 
@@ -246,7 +249,9 @@ final class ContentDetailViewModel {
             expandedSeason = nil
         } else {
             expandedSeason = seasonNumber
-            guard let slug = content?.slug, !slug.isEmpty else { return } // (#7)
+            // Use effectiveSlug (falls back to id) so seasons still load when the
+            // API returns content with a nil/empty slug — matching loadContent.
+            guard let slug = content?.effectiveSlug, !slug.isEmpty else { return } // (#7)
             // Special episodes use season 0 for API, but -1 for UI toggle
             let apiSeason = seasonNumber == -1 ? 0 : seasonNumber
             await loadEpisodes(slug: slug, seasonNumber: apiSeason)

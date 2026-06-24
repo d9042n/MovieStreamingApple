@@ -47,7 +47,9 @@ enum SubtitleParser {
             guard let text = String(data: data, encoding: .utf8) else {
                 throw SubtitleParserError.emptyContent
             }
-            content = text
+            // Normalize ONCE up front (strip BOM + unify line endings) so both
+            // format detection and both parsers see clean text.
+            content = normalize(text)
         } catch let error as SubtitleParserError {
             throw error
         } catch {
@@ -58,7 +60,7 @@ enum SubtitleParser {
             throw SubtitleParserError.emptyContent
         }
 
-        // Detect format by content or URL extension
+        // Detect format by content or URL extension (BOM already stripped)
         let isVTT = content.hasPrefix("WEBVTT") || urlString.lowercased().hasSuffix(".vtt")
 
         let cues: [SubtitleCue]
@@ -70,6 +72,20 @@ enum SubtitleParser {
 
         logger.info("Parsed \(cues.count) subtitle cues from \(url.lastPathComponent)")
         return cues.sorted { $0.startTime < $1.startTime }
+    }
+
+    /// Normalizes raw subtitle text: strips a leading UTF-8 BOM and converts all
+    /// line endings to "\n", so format detection and block splitting work for files
+    /// authored on any platform. (CRLF .vtt files previously produced zero cues
+    /// because the block separator "\n\n" never matched "\r\n\r\n".)
+    private static func normalize(_ raw: String) -> String {
+        var text = raw
+        if text.hasPrefix("\u{FEFF}") {
+            text.removeFirst()
+        }
+        return text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
     }
 
     // MARK: - WebVTT Parser
@@ -147,12 +163,8 @@ enum SubtitleParser {
         var cues: [SubtitleCue] = []
         var cueIndex = 0
 
-        // Normalize line endings and split into blocks
-        let normalized = content
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-
-        let blocks = normalized.components(separatedBy: "\n\n")
+        // Line endings already normalized in parse(); split into blocks.
+        let blocks = content.components(separatedBy: "\n\n")
 
         for block in blocks {
             let lines = block.components(separatedBy: "\n")
