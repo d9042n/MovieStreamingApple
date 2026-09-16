@@ -205,6 +205,13 @@ struct PlayerPageView: View {
                                     posterFallback: viewModel.content?.posterUrl,
                                     isLoading: viewModel.isEpisodesLoading,
                                     showHeader: false,
+                                    activeRange: viewModel.activeRange,
+                                    totalEpisodes: viewModel.totalSeasonEpisodes,
+                                    onRangeChange: { from, to in
+                                        Task {
+                                            await viewModel.changeRange(to: from, to: to, slug: slug)
+                                        }
+                                    },
                                     onSeasonChange: { seasonId in
                                         Task {
                                             await viewModel.changeSeason(to: seasonId, slug: slug)
@@ -440,6 +447,13 @@ struct PlayerPageView: View {
                         currentEpisodeId: viewModel.currentEpisode?.id,
                         posterFallback: viewModel.content?.posterUrl,
                         isLoading: viewModel.isEpisodesLoading,
+                        activeRange: viewModel.activeRange,
+                        totalEpisodes: viewModel.totalSeasonEpisodes,
+                        onRangeChange: { from, to in
+                            Task {
+                                await viewModel.changeRange(to: from, to: to, slug: slug)
+                            }
+                        },
                         onSeasonChange: { seasonId in
                             Task {
                                 await viewModel.changeSeason(to: seasonId, slug: slug)
@@ -498,6 +512,13 @@ struct PlayerPageView: View {
                                     posterFallback: viewModel.content?.posterUrl,
                                     isLoading: viewModel.isEpisodesLoading,
                                     showHeader: false,
+                                    activeRange: viewModel.activeRange,
+                                    totalEpisodes: viewModel.totalSeasonEpisodes,
+                                    onRangeChange: { from, to in
+                                        Task {
+                                            await viewModel.changeRange(to: from, to: to, slug: slug)
+                                        }
+                                    },
                                     onSeasonChange: { seasonId in
                                         Task {
                                             await viewModel.changeSeason(to: seasonId, slug: slug)
@@ -596,6 +617,13 @@ struct PlayerPageView: View {
                         currentEpisodeId: viewModel.currentEpisode?.id,
                         posterFallback: viewModel.content?.posterUrl,
                         isLoading: viewModel.isEpisodesLoading,
+                        activeRange: viewModel.activeRange,
+                        totalEpisodes: viewModel.totalSeasonEpisodes,
+                        onRangeChange: { from, to in
+                            Task {
+                                await viewModel.changeRange(to: from, to: to, slug: slug)
+                            }
+                        },
                         onSeasonChange: { seasonId in
                             Task {
                                 await viewModel.changeSeason(to: seasonId, slug: slug)

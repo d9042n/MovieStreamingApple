@@ -118,19 +118,29 @@ nonisolated protocol APIClientProtocol: Sendable {
     // Content Detail endpoints
     func fetchContentDetail(slug: String, type: ContentType) async throws -> Content
     func fetchSeasons(slug: String) async throws -> [Season]
-    func fetchEpisodes(slug: String, seasonNumber: Int) async throws -> [Episode]
+    func fetchEpisodes(slug: String, seasonNumber: Int, fromEpisode: Int?, toEpisode: Int?, episodeNumber: Int?) async throws -> [Episode]
     func fetchCredits(slug: String, type: ContentType) async throws -> CreditsResponse
     func fetchRelatedContents(slug: String, type: ContentType) async throws -> [Content]
     func fetchMedia(slug: String, type: ContentType) async throws -> [MediaItem]
 
     // Watch page endpoints
     func fetchWatchDetail(slug: String, type: ContentType) async throws -> WatchDetailResponse
-    func fetchSeriesEpisodes(slug: String, seasonNumber: Int) async throws -> [Episode]
+    func fetchSeriesEpisodes(slug: String, seasonNumber: Int, fromEpisode: Int?, toEpisode: Int?, episodeNumber: Int?) async throws -> [Episode]
     func trackView(contentId: String) async
 
     // People directory
     func fetchPeople(pageSize: Int, sortBy: String, sortOrder: String, search: String, gender: String, cursor: String?) async throws -> (data: [PersonListItem], pagination: APIPagination?)
     func fetchPersonDetail(slug: String) async throws -> PersonDetail
+}
+
+extension APIClientProtocol {
+    func fetchEpisodes(slug: String, seasonNumber: Int) async throws -> [Episode] {
+        try await fetchEpisodes(slug: slug, seasonNumber: seasonNumber, fromEpisode: nil, toEpisode: nil, episodeNumber: nil)
+    }
+
+    func fetchSeriesEpisodes(slug: String, seasonNumber: Int) async throws -> [Episode] {
+        try await fetchSeriesEpisodes(slug: slug, seasonNumber: seasonNumber, fromEpisode: nil, toEpisode: nil, episodeNumber: nil)
+    }
 }
 
 // MARK: - API Client Implementation
@@ -267,11 +277,18 @@ nonisolated final class APIClient: APIClientProtocol, Sendable {
 
     // MARK: - Episodes
 
-    func fetchEpisodes(slug: String, seasonNumber: Int) async throws -> [Episode] {
-        let result = try await get(
-            "\(baseURL)/tv/\(slug)/episodes?season_number=\(seasonNumber)&page_size=100",
-            as: APIListResponse<Episode>.self
-        )
+    func fetchEpisodes(
+        slug: String,
+        seasonNumber: Int,
+        fromEpisode: Int? = nil,
+        toEpisode: Int? = nil,
+        episodeNumber: Int? = nil
+    ) async throws -> [Episode] {
+        var query = "\(baseURL)/tv/\(slug)/episodes?season_number=\(seasonNumber)&page_size=100"
+        if let from = fromEpisode { query += "&from_episode=\(from)" }
+        if let to = toEpisode { query += "&to_episode=\(to)" }
+        if let num = episodeNumber { query += "&episode_number=\(num)" }
+        let result = try await get(query, as: APIListResponse<Episode>.self)
         return result.data ?? []
     }
 
@@ -314,11 +331,18 @@ nonisolated final class APIClient: APIClientProtocol, Sendable {
     // MARK: - Series Episodes (with servers embedded)
 
     /// Fetch episodes for a season — episodes include servers and subtitles for playback.
-    func fetchSeriesEpisodes(slug: String, seasonNumber: Int) async throws -> [Episode] {
-        let result = try await get(
-            "\(baseURL)/tv/\(slug)/episodes?season_number=\(seasonNumber)&page_size=100",
-            as: APIListResponse<Episode>.self
-        )
+    func fetchSeriesEpisodes(
+        slug: String,
+        seasonNumber: Int,
+        fromEpisode: Int? = nil,
+        toEpisode: Int? = nil,
+        episodeNumber: Int? = nil
+    ) async throws -> [Episode] {
+        var query = "\(baseURL)/tv/\(slug)/episodes?season_number=\(seasonNumber)&page_size=100"
+        if let from = fromEpisode { query += "&from_episode=\(from)" }
+        if let to = toEpisode { query += "&to_episode=\(to)" }
+        if let num = episodeNumber { query += "&episode_number=\(num)" }
+        let result = try await get(query, as: APIListResponse<Episode>.self)
         return (result.data ?? []).sorted { ($0.episodeNumber ?? 0) < ($1.episodeNumber ?? 0) }
     }
 

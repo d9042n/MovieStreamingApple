@@ -35,6 +35,12 @@ final class PlayerPageViewModel {
     var isEpisodesLoading = false
     private var episodesCache: [String: [Episode]] = [:]
 
+    // Episode range selection
+    var activeRange: (from: Int, to: Int) = (1, 100)
+    var totalSeasonEpisodes: Int {
+        activeSeason?.episodeCount ?? content?.episodeCount ?? 0
+    }
+
     // MARK: - Current Episode (series)
 
     var currentEpisode: Episode?
@@ -175,11 +181,21 @@ final class PlayerPageViewModel {
         return sortedSeasons[..<idx].last(where: seasonHasEpisodes)
     }
 
-    /// True if there is a next episode in this season OR a following season to roll into.
-    var hasNextEpisode: Bool { nextEpisode != nil || nextSeason != nil }
+    /// True if there is a next episode in this chunk, another chunk in this season, or a following season.
+    var hasNextEpisode: Bool {
+        if nextEpisode != nil { return true }
+        let currentNum = currentEpisode?.episodeNumber ?? activeRange.to
+        if currentNum < totalSeasonEpisodes { return true }
+        return nextSeason != nil
+    }
 
-    /// True if there is a previous episode in this season OR a preceding season.
-    var hasPreviousEpisode: Bool { previousEpisode != nil || previousSeason != nil }
+    /// True if there is a previous episode in this chunk, a preceding chunk in this season, or a preceding season.
+    var hasPreviousEpisode: Bool {
+        if previousEpisode != nil { return true }
+        let currentNum = currentEpisode?.episodeNumber ?? activeRange.from
+        if currentNum > 1 { return true }
+        return previousSeason != nil
+    }
 
     // MARK: - Init
 
@@ -225,8 +241,17 @@ final class PlayerPageViewModel {
                     activeSeasonId = sorted.first?.id ?? ""
                 }
 
+                // Compute chunk range if episodeNumber is specified
+                var initialFrom = 1
+                var initialTo = 100
+                if let epNum = episodeNumber, epNum > 0 {
+                    initialFrom = ((epNum - 1) / 100) * 100 + 1
+                    initialTo = initialFrom + 99
+                }
+                activeRange = (initialFrom, initialTo)
+
                 // Fetch episodes for active season
-                await loadEpisodes(slug: slug, episodeId: episodeId, episodeNumber: episodeNumber)
+                await loadEpisodes(slug: slug, episodeId: episodeId, episodeNumber: episodeNumber, fromEpisode: initialFrom, toEpisode: initialTo)
             }
 
             // 4. Fetch extras in parallel
@@ -247,12 +272,28 @@ final class PlayerPageViewModel {
 
     // MARK: - Episodes
 
-    /// Load episodes for the active season.
+    /// Switch to a different episode range (e.g. 101 to 200) for the active season.
+    func changeRange(to from: Int, to: Int, slug: String) async {
+        activeRange = (from, to)
+        await loadEpisodes(slug: slug, fromEpisode: from, toEpisode: to)
+    }
+
+    /// Load episodes for the active season and range.
     /// - Parameter selectLast: when true, selects the LAST episode after loading
-    ///   (used when rolling back into the previous season).
-    func loadEpisodes(slug: String, episodeId: String? = nil, episodeNumber: Int? = nil, selectLast: Bool = false) async {
+    ///   (used when rolling back into the previous season or range).
+    func loadEpisodes(
+        slug: String,
+        episodeId: String? = nil,
+        episodeNumber: Int? = nil,
+        selectLast: Bool = false,
+        fromEpisode: Int? = nil,
+        toEpisode: Int? = nil
+    ) async {
         guard let season = activeSeason else { return }
         let seasonNum = season.seasonNumber ?? 1
+        let fromEp = fromEpisode ?? activeRange.from
+        let toEp = toEpisode ?? activeRange.to
+        activeRange = (fromEp, toEp)
 
         func applySelection() {
             if selectLast, let last = seasonEpisodes.last {
@@ -262,8 +303,9 @@ final class PlayerPageViewModel {
             }
         }
 
+        let cacheKey = "\(activeSeasonId)_\(fromEp)_\(toEp)"
         // Check cache
-        if let cached = episodesCache[activeSeasonId] {
+        if let cached = episodesCache[cacheKey] {
             seasonEpisodes = cached
             applySelection()
             return
@@ -271,8 +313,14 @@ final class PlayerPageViewModel {
 
         isEpisodesLoading = true
         do {
-            let episodes = try await apiClient.fetchSeriesEpisodes(slug: slug, seasonNumber: seasonNum)
-            episodesCache[activeSeasonId] = episodes
+            let episodes = try await apiClient.fetchSeriesEpisodes(
+                slug: slug,
+                seasonNumber: seasonNum,
+                fromEpisode: fromEp,
+                toEpisode: toEp,
+                episodeNumber: nil
+            )
+            episodesCache[cacheKey] = episodes
             seasonEpisodes = episodes
             applySelection()
         } catch {
@@ -320,28 +368,44 @@ final class PlayerPageViewModel {
         setCurrentEpisode(ep)
     }
 
-    /// Go to the next episode, rolling into the first episode of the next season
-    /// when the current season is exhausted (web parity).
+    /// Go to the next episode, rolling into the next chunk or season if needed.
     func goToNextEpisode(slug: String) async {
         if let next = nextEpisode {
             setCurrentEpisode(next)
             return
         }
+        let currentNum = currentEpisode?.episodeNumber ?? activeRange.to
+        if currentNum < totalSeasonEpisodes {
+            let nextFrom = activeRange.to + 1
+            let nextTo = min(nextFrom + 99, totalSeasonEpisodes)
+            await loadEpisodes(slug: slug, episodeNumber: nextFrom, fromEpisode: nextFrom, toEpisode: nextTo)
+            return
+        }
         guard let next = nextSeason else { return }
         clearSeasonState(activeSeasonId: next.id)
-        await loadEpisodes(slug: slug)            // selects first episode by default
+        activeRange = (1, 100)
+        await loadEpisodes(slug: slug, fromEpisode: 1, toEpisode: 100)
     }
 
-    /// Go to the previous episode, rolling back into the LAST episode of the
-    /// previous season when at the start of the current season.
+    /// Go to the previous episode, rolling back into previous chunk or season if needed.
     func goToPreviousEpisode(slug: String) async {
         if let prev = previousEpisode {
             setCurrentEpisode(prev)
             return
         }
+        let currentNum = currentEpisode?.episodeNumber ?? activeRange.from
+        if currentNum > 1 {
+            let prevTo = activeRange.from - 1
+            let prevFrom = max(1, prevTo - 99)
+            await loadEpisodes(slug: slug, selectLast: true, fromEpisode: prevFrom, toEpisode: prevTo)
+            return
+        }
         guard let prev = previousSeason else { return }
         clearSeasonState(activeSeasonId: prev.id)
-        await loadEpisodes(slug: slug, selectLast: true)
+        let prevCount = prev.episodeCount ?? 100
+        let prevFrom = max(1, ((prevCount - 1) / 100) * 100 + 1)
+        activeRange = (prevFrom, prevCount)
+        await loadEpisodes(slug: slug, selectLast: true, fromEpisode: prevFrom, toEpisode: prevCount)
     }
 
     // MARK: - Change Season
@@ -349,7 +413,8 @@ final class PlayerPageViewModel {
     func changeSeason(to seasonId: String, slug: String) async {
         guard seasonId != activeSeasonId else { return }
         clearSeasonState(activeSeasonId: seasonId)
-        await loadEpisodes(slug: slug)
+        activeRange = (1, 100)
+        await loadEpisodes(slug: slug, fromEpisode: 1, toEpisode: 100)
     }
 
     /// Reset per-season state so the UI never shows the previous season's

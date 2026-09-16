@@ -116,6 +116,18 @@ struct DetailEpisodesView: View {
                     Divider()
                         .overlay(ThemeColor.textPrimary.opacity(0.06))
 
+                    if let count = season.episodeCount, count > 100 {
+                        EpisodeRangeSelectorView(
+                            totalEpisodes: count,
+                            activeFrom: viewModel.activeRange(for: seasonNum).from,
+                            onSelectRange: { from, to in
+                                Task { await viewModel.selectEpisodeRange(seasonNumber: seasonNum, from: from, to: to) }
+                            }
+                        )
+                        Divider()
+                            .overlay(ThemeColor.textPrimary.opacity(0.06))
+                    }
+
                     if viewModel.isLoadingEpisodes && episodes.isEmpty {
                         episodeSkeletonGrid
                     } else if viewModel.episodeLoadError != nil {

@@ -18,6 +18,9 @@ struct PlayerEpisodeList: View {
     /// Whether to show the built-in header. Set `false` when used inside
     /// the toggle-button pattern which already provides its own header.
     var showHeader: Bool = true
+    var activeRange: (from: Int, to: Int) = (1, 100)
+    var totalEpisodes: Int = 0
+    var onRangeChange: ((Int, Int) -> Void)? = nil
 
     var onSeasonChange: (String) -> Void
     var onEpisodeTap: (String) -> Void
@@ -32,6 +35,16 @@ struct PlayerEpisodeList: View {
             if showHeader {
                 header
                 Divider().background(.gray.opacity(0.3))
+            }
+
+            // Episode range selector (when series has > 100 episodes)
+            if totalEpisodes > 100, let onRangeChange = onRangeChange {
+                EpisodeRangeSelectorView(
+                    totalEpisodes: totalEpisodes,
+                    activeFrom: activeRange.from,
+                    onSelectRange: onRangeChange
+                )
+                Divider().background(.gray.opacity(0.15))
             }
 
             // Episode list

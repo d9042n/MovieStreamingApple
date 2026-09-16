@@ -42,6 +42,10 @@ final class ContentDetailViewModel {
     var relatedContents: [Content] = []
     var strippedDescription: String?
 
+    // Episode range selection and cache
+    var activeRangeMap: [Int: (from: Int, to: Int)] = [:]
+    private var episodesRangeCache: [String: [Episode]] = [:]
+
     var isLoading = false
     var isLoadingEpisodes = false
     var error: String?
@@ -213,7 +217,7 @@ final class ContentDetailViewModel {
                 if let firstSeason = fetchedSeasons.first {
                     let firstNum = firstSeason.seasonNumber ?? 1
                     expandedSeason = firstNum
-                    await loadEpisodes(slug: resolvedSlug, seasonNumber: firstNum)
+                    await loadEpisodes(slug: resolvedSlug, seasonNumber: firstNum, fromEpisode: 1, toEpisode: 100)
                 }
             }
         } catch {
@@ -221,19 +225,42 @@ final class ContentDetailViewModel {
         }
     }
 
-    /// Load episodes for a specific season.
-    func loadEpisodes(slug: String, seasonNumber: Int) async {
+    /// Active range for a season (defaults to 1 - 100)
+    func activeRange(for seasonNumber: Int) -> (from: Int, to: Int) {
+        activeRangeMap[seasonNumber] ?? (1, 100)
+    }
+
+    /// Select an episode range and load episodes for that range
+    func selectEpisodeRange(seasonNumber: Int, from: Int, to: Int) async {
+        activeRangeMap[seasonNumber] = (from, to)
+        guard let slug = content?.effectiveSlug, !slug.isEmpty else { return }
+        await loadEpisodes(slug: slug, seasonNumber: seasonNumber, fromEpisode: from, toEpisode: to)
+    }
+
+    /// Load episodes for a specific season and range.
+    func loadEpisodes(slug: String, seasonNumber: Int, fromEpisode: Int = 1, toEpisode: Int = 100) async {
         // Guard: skip invalid season numbers (#7)
         guard seasonNumber >= 0 else { return }
         // Clear the shared error up front (incl. the cache-hit path below) so a
         // previously-failed season doesn't show its error on a healthy cached one.
         episodeLoadError = nil
-        // Skip if already loaded
-        guard episodesBySeasonMap[seasonNumber] == nil else { return }
+
+        let cacheKey = "\(seasonNumber)_\(fromEpisode)_\(toEpisode)"
+        if let cached = episodesRangeCache[cacheKey] {
+            episodesBySeasonMap[seasonNumber] = cached
+            return
+        }
 
         isLoadingEpisodes = true
         do {
-            let episodes = try await apiClient.fetchEpisodes(slug: slug, seasonNumber: seasonNumber)
+            let episodes = try await apiClient.fetchEpisodes(
+                slug: slug,
+                seasonNumber: seasonNumber,
+                fromEpisode: fromEpisode,
+                toEpisode: toEpisode,
+                episodeNumber: nil
+            )
+            episodesRangeCache[cacheKey] = episodes
             episodesBySeasonMap[seasonNumber] = episodes
             episodeLoadError = nil
         } catch {
@@ -254,7 +281,8 @@ final class ContentDetailViewModel {
             guard let slug = content?.effectiveSlug, !slug.isEmpty else { return } // (#7)
             // Special episodes use season 0 for API, but -1 for UI toggle
             let apiSeason = seasonNumber == -1 ? 0 : seasonNumber
-            await loadEpisodes(slug: slug, seasonNumber: apiSeason)
+            let range = activeRange(for: apiSeason)
+            await loadEpisodes(slug: slug, seasonNumber: apiSeason, fromEpisode: range.from, toEpisode: range.to)
         }
     }
 
